@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     rows = employees.map((e) => ({ Name: e.name, Department: e.department?.name ?? "", Title: e.title, Status: e.status, Joined: e.joinedAt.toISOString().slice(0, 10) }));
   } else if (type === "payroll") {
     const records = await prisma.payrollRecord.findMany({ include: { employee: true }, orderBy: { month: "desc" } });
-    rows = records.map((r) => ({ Employee: r.employee.name, Month: r.month, Basic: r.basic, Allowances: r.allowances, Deductions: r.deductions, NetPay: r.netPay, Status: r.status }));
+    rows = records.map((r) => ({ Employee: r.employee.name, Month: r.month, Amount: r.amount, Status: r.status }));
   } else if (type === "projects") {
     const projects = await prisma.project.findMany({ include: { manager: true, tasks: true } });
     rows = projects.map((p) => ({ Project: p.name, Status: p.status, Manager: p.manager?.name ?? "", Budget: p.budget ?? 0, Spent: p.spent, Tasks: p.tasks.length, Completed: p.tasks.filter((t) => t.status === "done").length }));

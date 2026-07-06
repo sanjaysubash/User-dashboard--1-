@@ -25,6 +25,7 @@ export async function GET() {
         name: d.name,
         head: d.head?.name ?? "Unassigned",
         employees: d.employees.length,
+        members: d.employees.map((e) => ({ id: e.id, name: e.name, title: e.title, avatar: e.avatarInitials, avatarColor: e.avatarColor })),
         projects: d.projects.filter((p) => p.status !== "completed").length,
         budget: d.budget ?? 0,
         utilization,
@@ -48,16 +49,23 @@ export async function POST(req: NextRequest) {
 
   const head = body?.head ? await prisma.employee.findFirst({ where: { name: body.head } }) : null;
 
-  const department = await prisma.department.create({
-    data: {
-      name,
-      color: body?.color || "bg-indigo-500",
-      budget: body?.budget ? Math.round(Number(body.budget)) : null,
-      headId: head?.id ?? null,
-    },
-  });
+  try {
+    const department = await prisma.department.create({
+      data: {
+        name,
+        color: body?.color || "bg-indigo-500",
+        budget: body?.budget ? Math.round(Number(body.budget)) : null,
+        headId: head?.id ?? null,
+      },
+    });
 
-  await logAudit(user, `Created department "${department.name}"`, "Departments");
+    await logAudit(user, `Created department "${department.name}"`, "Departments");
 
-  return NextResponse.json({ department: { id: department.id, name: department.name } }, { status: 201 });
+    return NextResponse.json({ department: { id: department.id, name: department.name } }, { status: 201 });
+  } catch (e: any) {
+    if (e?.code === "P2002") {
+      return NextResponse.json({ error: "That employee already heads another department." }, { status: 409 });
+    }
+    throw e;
+  }
 }

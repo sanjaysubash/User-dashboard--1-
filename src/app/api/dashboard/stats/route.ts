@@ -20,7 +20,7 @@ export async function GET() {
     prisma.task.count(),
     prisma.task.count({ where: { status: "done" } }),
     prisma.task.findMany({ select: { status: true, assignee: { select: { department: { select: { name: true } } } } } }),
-    prisma.auditLogEntry.findMany({ orderBy: { createdAt: "desc" }, take: 6 }),
+    prisma.auditLogEntry.findMany({ where: { resource: { not: "Payroll" } }, orderBy: { createdAt: "desc" }, take: 6 }),
   ]);
 
   const STATUS_KEYS = ["todo", "in-progress", "review", "done"] as const;

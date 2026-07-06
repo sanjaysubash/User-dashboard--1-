@@ -12,15 +12,6 @@ function monthLabel(m: string) {
   const [y, mo] = m.split("-").map(Number);
   return new Date(y, mo - 1, 1).toLocaleDateString("en-US", { month: "short", year: "numeric" });
 }
-function lastNMonths(n: number) {
-  const out: string[] = [];
-  const d = new Date();
-  for (let i = n - 1; i >= 0; i--) {
-    const dt = new Date(d.getFullYear(), d.getMonth() - i, 1);
-    out.push(`${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`);
-  }
-  return out;
-}
 
 export async function GET(req: NextRequest) {
   const user = await getCurrentUser();
@@ -37,89 +28,70 @@ export async function GET(req: NextRequest) {
       payslips: records.map((r) => ({
         id: r.id,
         month: monthLabel(r.month),
-        basic: r.basic,
-        allowances: r.allowances,
-        deductions: r.deductions,
-        netPay: r.netPay,
+        amount: r.amount,
         status: r.status,
       })),
     });
   }
 
+  if (!isHrAdmin(user)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   const month = currentMonth();
-  const months = lastNMonths(6);
 
-  const [records, trendRecords, employees] = await Promise.all([
-    prisma.payrollRecord.findMany({ where: { month }, include: { employee: true }, orderBy: { id: "asc" } }),
-    prisma.payrollRecord.findMany({ where: { month: { in: months } } }),
-    prisma.employee.findMany({ where: { status: { not: "inactive" } }, include: { department: true } }),
+  const [employees, records] = await Promise.all([
+    prisma.employee.findMany({ where: { status: { not: "inactive" }, role: { not: "super_admin" } }, orderBy: { name: "asc" } }),
+    prisma.payrollRecord.findMany({ where: { month } }),
   ]);
+  const byEmployee = new Map(records.map((r) => [r.employeeId, r]));
 
-  const trend = months.map((m) => {
-    const rows = trendRecords.filter((r) => r.month === m);
-    const gross = rows.reduce((a, r) => a + r.basic + r.allowances, 0);
-    const net = rows.reduce((a, r) => a + r.netPay, 0);
-    return { month: monthLabel(m), gross, net };
+  const rows = employees.map((e) => {
+    const rec = byEmployee.get(e.id);
+    return {
+      employeeId: e.id,
+      name: e.name,
+      avatar: e.avatarInitials,
+      avatarColor: e.avatarColor,
+      amount: rec?.amount ?? 0,
+      status: rec?.status ?? "pending",
+      grantedAt: rec?.grantedAt ?? null,
+    };
   });
-
-  const deptTotals = new Map<string, { salary: number; count: number }>();
-  for (const e of employees) {
-    const name = e.department?.name ?? "Unassigned";
-    const cur = deptTotals.get(name) ?? { salary: 0, count: 0 };
-    cur.salary += (e.salary ?? 0) / 12;
-    cur.count += 1;
-    deptTotals.set(name, cur);
-  }
-
-  const totalGross = records.reduce((a, r) => a + r.basic + r.allowances, 0);
-  const totalDeductions = records.reduce((a, r) => a + r.deductions, 0);
-  const totalNet = records.reduce((a, r) => a + r.netPay, 0);
 
   return NextResponse.json({
     month: monthLabel(month),
-    alreadyRun: records.length > 0,
-    summary: { totalGross, totalNet, totalDeductions, employeesPaid: records.length },
-    trend,
-    salaryByDept: Array.from(deptTotals.entries()).map(([name, v]) => ({ name, monthly: Math.round(v.salary) })),
-    payslips: records.map((r) => ({
-      id: r.id,
-      name: r.employee.name,
-      avatar: r.employee.avatarInitials,
-      avatarColor: r.employee.avatarColor,
-      basic: r.basic,
-      allowances: r.allowances,
-      deductions: r.deductions,
-      netPay: r.netPay,
-      status: r.status,
-    })),
+    paidCount: rows.filter((r) => r.status === "paid").length,
+    totalCount: rows.length,
+    employees: rows,
   });
 }
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!isHrAdmin(user)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const month = currentMonth();
-  const existing = await prisma.payrollRecord.count({ where: { month } });
-  if (existing > 0) return NextResponse.json({ error: "Payroll has already been run for this month." }, { status: 409 });
-
-  const employees = await prisma.employee.findMany({ where: { status: { not: "inactive" }, salary: { not: null } } });
-
-  let created = 0;
-  for (const e of employees) {
-    const basic = Math.round((e.salary ?? 0) / 12);
-    const allowances = Math.round(basic * 0.15);
-    const deductions = Math.round(basic * 0.22);
-    const netPay = basic + allowances - deductions;
-    await prisma.payrollRecord.create({
-      data: { employeeId: e.id, month, basic, allowances, deductions, netPay, status: "processed" },
-    });
-    await notify(e.id, "payroll", "Payroll processed", `Your ${monthLabel(month)} payslip is ready.`, "payroll");
-    created++;
+  const body = await req.json().catch(() => ({}));
+  const employeeId = Number(body.employeeId);
+  const amount = Math.round(Number(body.amount));
+  if (!employeeId || !Number.isFinite(amount) || amount <= 0) {
+    return NextResponse.json({ error: "A valid employee and amount are required." }, { status: 400 });
   }
 
-  await logAudit(user, `Ran payroll for ${monthLabel(month)} (${created} employees)`, "Payroll");
+  const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+  if (!employee) return NextResponse.json({ error: "Employee not found." }, { status: 404 });
 
-  return NextResponse.json({ ok: true, created });
+  const month = currentMonth();
+  const label = monthLabel(month);
+  const now = new Date();
+
+  await prisma.payrollRecord.upsert({
+    where: { employeeId_month: { employeeId, month } },
+    update: { amount, status: "paid", grantedById: user.id, grantedAt: now },
+    create: { employeeId, month, amount, status: "paid", grantedById: user.id, grantedAt: now },
+  });
+
+  await notify(employeeId, "payroll", "Payroll processed", `Your payroll for ${label} has been granted.`, "payroll");
+  await logAudit(user, `Granted ${label} payroll for ${employee.name}`, "Payroll");
+
+  return NextResponse.json({ ok: true });
 }

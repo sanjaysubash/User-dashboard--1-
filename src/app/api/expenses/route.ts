@@ -19,8 +19,8 @@ function lastNMonths(n: number) {
 }
 
 async function payrollTotalForMonth(month: string) {
-  const rows = await prisma.payrollRecord.findMany({ where: { month } });
-  return rows.reduce((a, r) => a + r.basic + r.allowances, 0);
+  const rows = await prisma.payrollRecord.findMany({ where: { month, status: "paid" } });
+  return rows.reduce((a, r) => a + r.amount, 0);
 }
 
 export async function GET(req: NextRequest) {

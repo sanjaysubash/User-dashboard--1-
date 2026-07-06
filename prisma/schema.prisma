@@ -73,6 +73,7 @@ model Employee {
   createdEvents     CalendarEvent[]  @relation("EventCreator")
   createdMeetings   Meeting[]        @relation("MeetingCreator")
   payrollRecords    PayrollRecord[]
+  payrollGrants     PayrollRecord[] @relation("PayrollGrantedBy")
   reviewsReceived   PerformanceReview[] @relation("ReviewSubject")
   reviewsGiven      PerformanceReview[] @relation("ReviewReviewer")
   objectives        Objective[]
@@ -303,12 +304,12 @@ model PayrollRecord {
   employeeId  Int
   employee    Employee  @relation(fields: [employeeId], references: [id])
   month       String    // "2026-06"
-  basic       Int
-  allowances  Int
-  deductions  Int
-  netPay      Int
-  status      String    @default("processed") // processed | pending
-  processedAt DateTime  @default(now())
+  amount      Int       @default(0)
+  status      String    @default("pending") // pending | paid
+  grantedById Int?
+  grantedBy   Employee? @relation("PayrollGrantedBy", fields: [grantedById], references: [id])
+  grantedAt   DateTime?
+  createdAt   DateTime  @default(now())
 
   @@unique([employeeId, month])
 }
@@ -500,6 +501,7 @@ model EODReport {
   summary      String
   blockers     String?
   tomorrowPlan String?
+  taskIds      String   @default("[]") // JSON-encoded number[]
   createdAt    DateTime @default(now())
 
   @@unique([employeeId, date])

@@ -89,9 +89,9 @@ const useAuth = () => useContext(AuthCtx);
 // ─── MODAL CONTEXT ────────────────────────────────────────────────────────────
 
 type ModalName =
-  | "add-employee" | "add-department" | "create-team" | "create-project"
+  | "add-employee" | "add-department" | "department-detail" | "create-team" | "create-project"
   | "create-task" | "task-detail" | "create-event" | "schedule-meeting" | "apply-leave"
-  | "start-review-cycle" | "add-objective" | "add-article" | null;
+  | "start-review-cycle" | "add-objective" | "add-article" | "eod-detail" | null;
 
 const ModalCtx = createContext<{
   openModal: (n: ModalName, data?: any) => void;
@@ -611,7 +611,7 @@ function DepartmentsPage() {
   const [departments, setDepartments] = useState<any[]>([]);
 
   useEffect(() => {
-    if (activeModal === "add-department") return;
+    if (activeModal === "add-department" || activeModal === "department-detail") return;
     fetch("/api/departments").then(r => r.json()).then(d => setDepartments(d.departments ?? []));
   }, [activeModal]);
 
@@ -620,7 +620,7 @@ function DepartmentsPage() {
       <PageHeader title="Departments" subtitle="Manage organization structures and budgets" actions={<Btn size="sm" icon={Plus} onClick={()=>openModal("add-department")}>New Department</Btn>}/>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {departments.map((dept: any)=>(
-          <Card key={dept.id} className="p-5 cursor-pointer transition-all hover:-translate-y-0.5">
+          <Card key={dept.id} className="p-5 cursor-pointer transition-all hover:-translate-y-0.5" onClick={()=>openModal("department-detail",{dept})}>
             <div className="flex items-center gap-3 mb-4">
               <div className={`w-10 h-10 rounded-xl ${dept.color} flex items-center justify-center`}><Building2 size={18} className="text-white"/></div>
               <div><h3 className={`font-semibold text-sm ${c("text-white","text-slate-900")}`}>{dept.name}</h3><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{dept.employees} employees</p></div>
@@ -647,6 +647,7 @@ function TeamsPage() {
   const { c } = useTheme();
   const { openModal, activeModal } = useModal();
   const [teamsData, setTeamsData] = useState<any[]>([]);
+  const [view, setView] = useState<"teams"|"org">("teams");
 
   useEffect(() => {
     if (activeModal === "create-team") return;
@@ -655,21 +656,113 @@ function TeamsPage() {
 
   return (
     <div>
-      <PageHeader title="Teams" subtitle={`${teamsData.length} active teams`} actions={<Btn size="sm" icon={Plus} onClick={()=>openModal("create-team")}>Create Team</Btn>}/>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {teamsData.map((team: any)=>(
-          <Card key={team.id} className="p-5 cursor-pointer transition-all hover:-translate-y-0.5">
-            <div className="flex items-start justify-between mb-4"><div><h3 className={`font-semibold text-sm ${c("text-white","text-slate-900")}`}>{team.name}</h3><p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{team.dept}</p></div><Badge variant="info">{team.projects} projects</Badge></div>
-            <div className="flex items-center gap-2 mb-4"><Avatar initials={team.leadAvatar} color={team.leadColor} size="sm"/><div><p className={`text-xs font-medium ${c("text-slate-300","text-slate-700")}`}>{team.lead}</p><p className={`text-[10px] ${c("text-slate-600","text-slate-400")}`}>Team Lead</p></div></div>
-            <div className="flex items-center gap-1 mb-4">
-              {team.members.slice(0,4).map((m: any,i: number)=><div key={i} className={`w-7 h-7 rounded-full ${m.c} flex items-center justify-center text-[10px] font-bold text-white border-2 ${c("border-slate-800","border-white")} -ml-1 first:ml-0`}>{m.i}</div>)}
-              {team.size>5 && <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold border-2 -ml-1 ${c("bg-slate-700 text-slate-400 border-slate-800","bg-slate-100 text-slate-500 border-white")}`}>+{team.size-5}</div>}
-              <span className={`ml-2 text-xs ${c("text-slate-500","text-slate-400")}`}>{team.size} members</span>
-            </div>
-            <div><div className="flex justify-between text-xs mb-1"><span className={c("text-slate-500","text-slate-400")}>Velocity</span><span className={`font-semibold ${team.velocity>=85?"text-emerald-500":"text-amber-500"}`}>{team.velocity}%</span></div><ProgressBar value={team.velocity} color={team.velocity>=85?"bg-emerald-500":"bg-amber-500"}/></div>
-          </Card>
-        ))}
+      <PageHeader title="Teams" subtitle={view==="teams" ? `${teamsData.length} active teams` : "Reporting structure across the organization"}
+        actions={<>
+          <div className="flex gap-1">
+            <button onClick={()=>setView("teams")} className={`px-3 py-1.5 text-xs rounded-lg font-medium ${view==="teams"?"bg-indigo-600 text-white":c("bg-slate-800/60 text-slate-500","bg-white border border-slate-200 text-slate-500")}`}>Teams</button>
+            <button onClick={()=>setView("org")} className={`px-3 py-1.5 text-xs rounded-lg font-medium ${view==="org"?"bg-indigo-600 text-white":c("bg-slate-800/60 text-slate-500","bg-white border border-slate-200 text-slate-500")}`}>Org Chart</button>
+          </div>
+          {view==="teams" && <Btn size="sm" icon={Plus} onClick={()=>openModal("create-team")}>Create Team</Btn>}
+        </>}/>
+      {view==="teams" ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {teamsData.map((team: any)=>(
+            <Card key={team.id} className="p-5 cursor-pointer transition-all hover:-translate-y-0.5">
+              <div className="flex items-start justify-between mb-4"><div><h3 className={`font-semibold text-sm ${c("text-white","text-slate-900")}`}>{team.name}</h3><p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{team.dept}</p></div><Badge variant="info">{team.projects} projects</Badge></div>
+              <div className="flex items-center gap-2 mb-4"><Avatar initials={team.leadAvatar} color={team.leadColor} size="sm"/><div><p className={`text-xs font-medium ${c("text-slate-300","text-slate-700")}`}>{team.lead}</p><p className={`text-[10px] ${c("text-slate-600","text-slate-400")}`}>Team Lead</p></div></div>
+              <div className="flex items-center gap-1 mb-4">
+                {team.members.slice(0,4).map((m: any,i: number)=><div key={i} className={`w-7 h-7 rounded-full ${m.c} flex items-center justify-center text-[10px] font-bold text-white border-2 ${c("border-slate-800","border-white")} -ml-1 first:ml-0`}>{m.i}</div>)}
+                {team.size>5 && <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold border-2 -ml-1 ${c("bg-slate-700 text-slate-400 border-slate-800","bg-slate-100 text-slate-500 border-white")}`}>+{team.size-5}</div>}
+                <span className={`ml-2 text-xs ${c("text-slate-500","text-slate-400")}`}>{team.size} members</span>
+              </div>
+              <div><div className="flex justify-between text-xs mb-1"><span className={c("text-slate-500","text-slate-400")}>Velocity</span><span className={`font-semibold ${team.velocity>=85?"text-emerald-500":"text-amber-500"}`}>{team.velocity}%</span></div><ProgressBar value={team.velocity} color={team.velocity>=85?"bg-emerald-500":"bg-amber-500"}/></div>
+            </Card>
+          ))}
+        </div>
+      ) : <OrgChartView/>}
+    </div>
+  );
+}
+
+function OrgChartView() {
+  const { c } = useTheme();
+  const { activeModal } = useModal();
+  const [roots, setRoots] = useState<any[]>([]);
+  const [version, setVersion] = useState(0);
+  const employees = useEmployeeDirectory();
+
+  useEffect(() => {
+    if (activeModal === "add-employee") return;
+    fetch("/api/org-chart").then(r => r.json()).then(d => setRoots(d.roots ?? []));
+  }, [activeModal, version]);
+
+  return (
+    <Card className="p-5">
+      {roots.length===0
+        ? <p className={`text-sm ${c("text-slate-500","text-slate-400")}`}>No employees yet.</p>
+        : <div className="space-y-0.5">{roots.map((n:any)=><OrgNode key={n.id} node={n} employees={employees} onChange={()=>setVersion(v=>v+1)}/>)}</div>}
+    </Card>
+  );
+}
+
+function OrgNode({ node, employees, onChange }: { node: any; employees: any[]; onChange: () => void }) {
+  const { c } = useTheme();
+  const { openModal } = useModal();
+  const [expanded, setExpanded] = useState(true);
+  const [changingManager, setChangingManager] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const changeManager = async (managerName: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/employees/${node.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ manager: managerName === "__none__" ? "" : managerName }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setError(d.error || "Could not change manager."); return; }
+      setChangingManager(false);
+      onChange();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 py-1.5 group">
+        {node.reports.length > 0
+          ? <button onClick={()=>setExpanded(e=>!e)} className={`w-5 h-5 flex items-center justify-center flex-shrink-0 ${c("text-slate-500","text-slate-400")}`}>{expanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}</button>
+          : <span className="w-5 flex-shrink-0"/>}
+        <Avatar initials={node.avatar} color={node.avatarColor} size="sm"/>
+        <div className="min-w-0 flex-1">
+          <p className={`text-sm font-medium truncate ${c("text-slate-200","text-slate-800")}`}>{node.name}</p>
+          <p className={`text-[11px] truncate ${c("text-slate-500","text-slate-400")}`}>{node.title}{node.dept ? ` · ${node.dept}` : ""}</p>
+        </div>
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          <button title="Add direct report" onClick={()=>openModal("add-employee",{defaultManager: node.name})} className={`w-6 h-6 rounded flex items-center justify-center ${c("text-slate-500 hover:text-indigo-400 hover:bg-slate-700/60","text-slate-400 hover:text-indigo-500 hover:bg-slate-100")}`}><Plus size={13}/></button>
+          <button title="Change manager" onClick={()=>setChangingManager(v=>!v)} className={`w-6 h-6 rounded flex items-center justify-center ${c("text-slate-500 hover:text-indigo-400 hover:bg-slate-700/60","text-slate-400 hover:text-indigo-500 hover:bg-slate-100")}`}><Edit2 size={12}/></button>
+        </div>
       </div>
+      {changingManager && (
+        <div className="flex items-center gap-2 pb-2 pl-7">
+          <FSelect value="" onChange={changeManager} className="max-w-[220px]">
+            <option value="" disabled>Move under...</option>
+            <option value="__none__">None (Top-level)</option>
+            {employees.filter((e:any)=>e.id!==node.id).map((e:any)=><option key={e.id} value={e.name}>{e.name}</option>)}
+          </FSelect>
+          {busy && <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Saving...</span>}
+        </div>
+      )}
+      {error && <p className="text-xs text-red-400 pl-7 pb-1">{error}</p>}
+      {expanded && node.reports.length > 0 && (
+        <div className={`ml-2.5 pl-4 border-l ${c("border-white/10","border-slate-200")}`}>
+          {node.reports.map((r:any)=><OrgNode key={r.id} node={r} employees={employees} onChange={onChange}/>)}
+        </div>
+      )}
     </div>
   );
 }
@@ -1156,84 +1249,62 @@ function LeavePage() {
 // ─── PAYROLL ──────────────────────────────────────────────────────────────────
 
 function PayrollPage() {
-  const { c, light } = useTheme();
-  const col = light?LIGHT:DARK;
+  const { c } = useTheme();
   const [data, setData] = useState<any>(null);
-  const [running, setRunning] = useState(false);
+  const [amounts, setAmounts] = useState<Record<number, string>>({});
+  const [grantingId, setGrantingId] = useState<number | null>(null);
   const [error, setError] = useState("");
 
   const load = () => fetch("/api/payroll").then(r => r.json()).then(setData);
   useEffect(() => { load(); }, []);
 
-  const runPayroll = async () => {
-    setRunning(true);
+  const grant = async (employeeId: number) => {
+    const amount = Number(amounts[employeeId]);
+    if (!amount || amount <= 0) { setError("Enter a valid amount before granting."); return; }
+    setGrantingId(employeeId);
     setError("");
     try {
-      const res = await fetch("/api/payroll", { method: "POST" });
+      const res = await fetch("/api/payroll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeId, amount }),
+      });
       const d = await res.json();
-      if (!res.ok) { setError(d.error || "Could not run payroll."); return; }
+      if (!res.ok) { setError(d.error || "Could not grant payroll."); return; }
       await load();
     } finally {
-      setRunning(false);
+      setGrantingId(null);
     }
   };
 
   if (!data) return null;
-  const fmtM = (n: number) => `$${(n/1000000).toFixed(2)}M`;
 
   return (
     <div>
-      <PageHeader title="Payroll" subtitle="Salary, payslips, and compensation" actions={<Btn size="sm" icon={Play} onClick={runPayroll}>{data.alreadyRun ? `Payroll Run — ${data.month}` : running ? "Running..." : "Run Payroll"}</Btn>}/>
+      <PageHeader title="Payroll" subtitle={`Grant salary payouts for ${data.month}`}/>
       {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard label={`Total Payroll (${data.month})`} value={fmtM(data.summary.totalGross)} icon={DollarSign} iconColor="bg-emerald-600/40" trend="up"/>
-        <StatCard label="Net Disbursed" value={fmtM(data.summary.totalNet)} icon={TrendingUp} iconColor="bg-indigo-600/40" trend="up"/>
-        <StatCard label="Total Deductions" value={fmtM(data.summary.totalDeductions)} icon={ArrowDown} iconColor="bg-amber-600/40" trend="up"/>
-        <StatCard label="Employees Paid" value={String(data.summary.employeesPaid)} icon={Users} iconColor="bg-violet-600/40" trend="up"/>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        <Card className="p-5">
-          <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Payroll Trend — Last 6 Months</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={data.trend}>
-              <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/>
-              <XAxis dataKey="month" tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false}/>
-              <YAxis tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false} tickFormatter={v=>`$${(v/1000).toFixed(0)}K`}/>
-              <Tooltip content={(p:any)=><ChartTip {...p} light={light}/>}/>
-              <Bar key="pay-gross" dataKey="gross" name="Gross" fill="#4F46E5" radius={[4,4,0,0]}/>
-              <Bar key="pay-net" dataKey="net" name="Net" fill="#22C55E" radius={[4,4,0,0]}/>
-            </BarChart>
-          </ResponsiveContainer>
-        </Card>
-        <Card className="p-5">
-          <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Salary by Department</h3>
-          <div className="space-y-3">
-            {data.salaryByDept.map((d:any)=>(
-              <div key={d.name} className="flex items-center gap-3">
-                <span className={`text-xs w-24 flex-shrink-0 ${c("text-slate-400","text-slate-500")}`}>{d.name}</span>
-                <div className="flex-1"><ProgressBar value={Math.min(100,(d.monthly/Math.max(1,...data.salaryByDept.map((x:any)=>x.monthly)))*100)}/></div>
-                <span className={`text-xs w-16 text-right ${c("text-slate-300","text-slate-700")}`}>${(d.monthly/1000).toFixed(0)}K/mo</span>
-              </div>
-            ))}
-          </div>
-        </Card>
+      <div className="grid grid-cols-2 gap-4 mb-6">
+        <StatCard label="Paid" value={String(data.paidCount)} icon={CheckCircle2} iconColor="bg-emerald-600/40" trend="up"/>
+        <StatCard label="Pending" value={String(data.totalCount - data.paidCount)} icon={Clock} iconColor="bg-amber-600/40" trend="up"/>
       </div>
       <Card>
-        <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")} flex items-center justify-between`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Payslips — {data.month}</h3><Btn variant="secondary" size="sm" icon={Download} onClick={()=>window.location.href="/api/reports/export?type=payroll"}>Download All</Btn></div>
-        {data.payslips.length===0 && <p className={`p-4 text-sm ${c("text-slate-500","text-slate-400")}`}>Payroll hasn't been run for {data.month} yet.</p>}
+        <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Employees — {data.month}</h3></div>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Employee","Basic","Allowances","Deductions","Net Pay","Status","Payslip"].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
+            <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Employee","Amount","Status",""].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
             <tbody>
-              {data.payslips.map((r:any)=>(
-                <tr key={r.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
-                  <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={r.avatar} color={r.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{r.name}</span></div></td>
-                  <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>${(r.basic/1000).toFixed(1)}K</td>
-                  <td className="px-4 py-3 text-sm text-emerald-500">+${(r.allowances/1000).toFixed(1)}K</td>
-                  <td className="px-4 py-3 text-sm text-red-500">-${(r.deductions/1000).toFixed(1)}K</td>
-                  <td className={`px-4 py-3 text-sm font-semibold ${c("text-white","text-slate-900")}`}>${(r.netPay/1000).toFixed(1)}K</td>
-                  <td className="px-4 py-3"><Badge variant="success">Processed</Badge></td>
-                  <td className="px-4 py-3"><button className="text-xs text-indigo-500 flex items-center gap-1"><Download size={11}/>PDF</button></td>
+              {data.employees.map((e:any)=>(
+                <tr key={e.employeeId} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
+                  <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{e.name}</span></div></td>
+                  <td className="px-4 py-3">
+                    {e.status==="paid"
+                      ? <span className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>₹{e.amount.toLocaleString("en-IN")}</span>
+                      : <FInput value={amounts[e.employeeId] ?? ""} onChange={v=>setAmounts(a=>({...a,[e.employeeId]:v}))} type="number" placeholder="Enter amount" className="max-w-[160px]"/>}
+                  </td>
+                  <td className="px-4 py-3">{e.status==="paid" ? <Badge variant="success">Paid</Badge> : <Badge variant="warning">Pending</Badge>}</td>
+                  <td className="px-4 py-3">
+                    {e.status!=="paid" && <Btn size="sm" onClick={()=>grant(e.employeeId)} disabled={grantingId===e.employeeId}>{grantingId===e.employeeId?"Granting...":"Grant"}</Btn>}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -2144,14 +2215,11 @@ function EmployeeProfilePage() {
           {payroll.length === 0 && <p className={`p-4 text-xs ${c("text-slate-500","text-slate-400")}`}>No payslips generated yet.</p>}
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Month","Basic","Allowances","Deductions","Net Pay","Status"].map(h => <th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
+              <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Month","Amount","Status"].map(h => <th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
               <tbody>{payroll.map((p: any) => (
                 <tr key={p.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")}`}>
                   <td className={`px-4 py-3 text-sm font-medium ${c("text-slate-300","text-slate-700")}`}>{p.month}</td>
-                  <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>${(p.basic/1000).toFixed(1)}K</td>
-                  <td className="px-4 py-3 text-sm text-emerald-500">+${(p.allowances/1000).toFixed(1)}K</td>
-                  <td className="px-4 py-3 text-sm text-red-500">-${(p.deductions/1000).toFixed(1)}K</td>
-                  <td className={`px-4 py-3 text-sm font-semibold ${c("text-white","text-slate-900")}`}>${(p.netPay/1000).toFixed(1)}K</td>
+                  <td className={`px-4 py-3 text-sm font-semibold ${c("text-white","text-slate-900")}`}>₹{p.amount.toLocaleString("en-IN")}</td>
                   <td className="px-4 py-3"><Badge variant="success">{p.status}</Badge></td>
                 </tr>
               ))}</tbody>
@@ -2641,6 +2709,7 @@ function useDepartmentDirectory() {
 
 function AddEmployeeModal({ onClose }: { onClose: () => void }) {
   const { c } = useTheme();
+  const { modalData } = useModal();
   const [step, setStep] = useState(1);
   const [done, setDone] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -2650,7 +2719,7 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
   const [f, setF] = useState({
     firstName: "", lastName: "", email: "", phone: "", dob: "", gender: "Male", nationality: "American",
     dept: "", jobTitle: "", roleLevel: "employee", empType: "Full-time", workLoc: "Hybrid",
-    manager: "", startDate: "", probationEnd: "",
+    manager: modalData?.defaultManager ?? "", startDate: "", probationEnd: "",
     salary: "", payFreq: "Monthly", currency: "USD", annualLeave: "24", sickLeave: "12",
   });
   const set = (k: string, v: string) => setF(prev => ({ ...prev, [k]: v }));
@@ -2846,6 +2915,111 @@ function AddDepartmentModal({ onClose }: { onClose: () => void }) {
           <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
         </div>
       </div>
+    </ModalOverlay>
+  );
+}
+
+function DepartmentDetailModal({ onClose }: { onClose: () => void }) {
+  const { c } = useTheme();
+  const { modalData } = useModal();
+  const employees = useEmployeeDirectory();
+  const [dept, setDept] = useState<any>(modalData?.dept ?? null);
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [f, setF] = useState({ name: "", head: "", budget: "", color: "" });
+  const colors = ["bg-indigo-500","bg-emerald-500","bg-violet-500","bg-amber-500","bg-rose-500","bg-cyan-500","bg-pink-500","bg-teal-500"];
+
+  useEffect(() => { setDept(modalData?.dept ?? null); }, [modalData?.dept]);
+
+  if (!dept) return null;
+
+  const startEdit = () => {
+    setF({ name: dept.name, head: dept.head === "Unassigned" ? "" : dept.head, budget: dept.budget ? String(dept.budget) : "", color: dept.color });
+    setError("");
+    setEditing(true);
+  };
+
+  const save = async () => {
+    if (!f.name.trim()) { setError("Department name is required."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/departments/${dept.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(f),
+      });
+      const d = await res.json();
+      if (!res.ok) { setError(d.error || "Could not save changes."); return; }
+      setDept((prev: any) => ({ ...prev, name: f.name, head: f.head || "Unassigned", budget: f.budget ? Math.round(Number(f.budget)) : prev.budget, color: f.color }));
+      setEditing(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!window.confirm(`Delete ${dept.name}? This cannot be undone.`)) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/departments/${dept.id}`, { method: "DELETE" });
+      const d = await res.json();
+      if (!res.ok) { setError(d.error || "Could not delete department."); return; }
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ModalOverlay title={editing ? "Edit Department" : dept.name} onClose={onClose}>
+      {editing ? (
+        <div className="space-y-4">
+          <div><FieldLabel label="Department Name" required/><FInput value={f.name} onChange={v=>setF(p=>({...p,name:v}))}/></div>
+          <div><FieldLabel label="Head of Department"/><FSelect value={f.head} onChange={v=>setF(p=>({...p,head:v}))}><option value="">Unassigned</option>{employees.map((e:any)=><option key={e.id}>{e.name}</option>)}</FSelect></div>
+          <div><FieldLabel label="Annual Budget (USD)"/><FInput value={f.budget} onChange={v=>setF(p=>({...p,budget:v}))} placeholder="e.g. 1500000"/></div>
+          <div>
+            <FieldLabel label="Department Color"/>
+            <div className="flex gap-2 mt-1">{colors.map(col=><button key={col} onClick={()=>setF(p=>({...p,color:col}))} className={`w-7 h-7 rounded-full ${col} transition-transform ${f.color===col?"scale-125 ring-2 ring-white/40":"hover:scale-110"}`}/>)}</div>
+          </div>
+          {error && <p className="text-xs text-red-400">{error}</p>}
+          <div className="flex items-center justify-between gap-2 pt-2">
+            <div className="flex gap-2"><Btn variant="primary" onClick={save} disabled={busy}>{busy?"Saving...":"Save"}</Btn><Btn variant="secondary" onClick={()=>setEditing(false)}>Cancel</Btn></div>
+            <Btn variant="danger" size="sm" icon={Trash2} onClick={remove} disabled={busy}>{busy?"Deleting...":"Delete Department"}</Btn>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <div className={`w-12 h-12 rounded-xl ${dept.color} flex items-center justify-center`}><Building2 size={20} className="text-white"/></div>
+            <div><h3 className={`font-semibold text-sm ${c("text-white","text-slate-900")}`}>{dept.name}</h3><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{dept.employees} employees</p></div>
+          </div>
+          <div className="space-y-2 text-sm">
+            {[["Head",dept.head],["Active Projects",String(dept.projects)],["Budget",`$${(dept.budget/1000000).toFixed(2)}M`]].map(([label,val])=>(
+              <div key={label as string} className="flex justify-between"><span className={c("text-slate-500","text-slate-400")}>{label}</span><span className={`font-medium ${c("text-slate-300","text-slate-700")}`}>{val}</span></div>
+            ))}
+          </div>
+          <div>
+            <div className="flex justify-between mb-1 text-xs"><span className={c("text-slate-500","text-slate-400")}>Utilization</span><span className={`font-semibold ${dept.utilization>=85?"text-emerald-500":dept.utilization>=70?"text-amber-500":"text-red-500"}`}>{dept.utilization}%</span></div>
+            <ProgressBar value={dept.utilization} color={dept.utilization>=85?"bg-emerald-500":dept.utilization>=70?"bg-amber-500":"bg-red-500"}/>
+          </div>
+          <div>
+            <p className={`text-xs font-semibold mb-2 ${c("text-slate-300","text-slate-700")}`}>Members ({dept.members?.length ?? 0})</p>
+            <div className="space-y-1.5 max-h-64 overflow-y-auto">
+              {(dept.members ?? []).map((m:any)=>(
+                <div key={m.id} className={`flex items-center gap-2.5 p-2 rounded-lg ${c("bg-slate-800/50","bg-slate-50")}`}>
+                  <Avatar initials={m.avatar} color={m.avatarColor} size="sm"/>
+                  <div className="min-w-0"><p className={`text-sm truncate ${c("text-slate-200","text-slate-800")}`}>{m.name}</p><p className={`text-[11px] truncate ${c("text-slate-500","text-slate-400")}`}>{m.title}</p></div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {error && <p className="text-xs text-red-400">{error}</p>}
+          <Btn variant="secondary" size="sm" icon={Edit2} onClick={startEdit}>Edit</Btn>
+        </div>
+      )}
     </ModalOverlay>
   );
 }
@@ -3784,6 +3958,7 @@ function ModalSystem() {
     <>
       {activeModal === "add-employee" && <AddEmployeeModal onClose={closeModal}/>}
       {activeModal === "add-department" && <AddDepartmentModal onClose={closeModal}/>}
+      {activeModal === "department-detail" && <DepartmentDetailModal onClose={closeModal}/>}
       {activeModal === "create-team" && <CreateTeamModal onClose={closeModal}/>}
       {activeModal === "create-project" && <CreateProjectModal onClose={closeModal}/>}
       {activeModal === "create-task" && <CreateTaskModal onClose={closeModal}/>}
@@ -3794,6 +3969,7 @@ function ModalSystem() {
       {activeModal === "start-review-cycle" && <StartReviewCycleModal onClose={closeModal}/>}
       {activeModal === "add-objective" && <AddObjectiveModal onClose={closeModal}/>}
       {activeModal === "add-article" && <AddArticleModal onClose={closeModal}/>}
+      {activeModal === "eod-detail" && <EODDetailModal onClose={closeModal}/>}
     </>
   );
 }
@@ -3803,29 +3979,54 @@ function ModalSystem() {
 function EODPage() {
   const { c } = useTheme();
   const { authUser } = useAuth();
+  const isHrAdmin = authUser?.role === "super-admin" || authUser?.role === "hr-admin";
+  const [view, setView] = useState<"mine"|"team">("mine");
+
+  return (
+    <div className="space-y-4">
+      {isHrAdmin && (
+        <div className="flex gap-1">
+          <button onClick={()=>setView("mine")} className={`px-3 py-1.5 text-xs rounded-lg font-medium ${view==="mine"?"bg-indigo-600 text-white":c("bg-slate-800/60 text-slate-500","bg-white border border-slate-200 text-slate-500")}`}>My Report</button>
+          <button onClick={()=>setView("team")} className={`px-3 py-1.5 text-xs rounded-lg font-medium ${view==="team"?"bg-indigo-600 text-white":c("bg-slate-800/60 text-slate-500","bg-white border border-slate-200 text-slate-500")}`}>Team Reports</button>
+        </div>
+      )}
+      {view==="mine" ? <MyEODView/> : <TeamEODView/>}
+    </div>
+  );
+}
+
+function MyEODView() {
+  const { c } = useTheme();
+  const { authUser } = useAuth();
   const [submitted, setSubmitted] = useState(false);
   const [accomplish, setAccomplish] = useState("");
   const [blockers, setBlockers] = useState("");
   const [priorities, setPriorities] = useState(["", "", ""]);
   const [tasks, setTasks] = useState<any[]>([]);
+  const [selectedTaskIds, setSelectedTaskIds] = useState<number[]>([]);
   const [history, setHistory] = useState<any[]>([]);
+  const [compliance, setCompliance] = useState<{submitted:number;workingDays:number}|null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     fetch("/api/eod").then(r => r.json()).then(d => {
       setHistory(d.history ?? []);
+      setCompliance(d.compliance ?? null);
       if (d.submittedToday && d.today) {
         setSubmitted(true);
         setAccomplish(d.today.summary || "");
         setBlockers(d.today.blockers || "");
         setPriorities((d.today.tomorrowPlan || "").split("\n").filter(Boolean).concat(["", "", ""]).slice(0, 3));
+        setSelectedTaskIds(d.today.taskIds ?? []);
       }
     });
   }, []);
   useEffect(() => {
     if (authUser) fetch(`/api/tasks?assignee=${encodeURIComponent(authUser.name)}`).then(r => r.json()).then(d => setTasks((d.tasks ?? []).filter((t: any) => t.status !== "done")));
   }, [authUser]);
+
+  const toggleTask = (id: number) => setSelectedTaskIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
   const submit = async () => {
     if (!accomplish.trim()) { setError("Please summarize what you accomplished today."); return; }
@@ -3835,7 +4036,7 @@ function EODPage() {
       const res = await fetch("/api/eod", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ summary: accomplish, blockers, tomorrowPlan: priorities.filter(Boolean).join("\n") }),
+        body: JSON.stringify({ summary: accomplish, blockers, tomorrowPlan: priorities.filter(Boolean).join("\n"), taskIds: selectedTaskIds }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Could not submit report."); return; }
@@ -3852,6 +4053,7 @@ function EODPage() {
       <div className="w-20 h-20 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mb-5"><CheckCircle2 size={36} className="text-emerald-500"/></div>
       <h2 className={`text-2xl font-bold mb-2 ${c("text-white","text-slate-900")}`}>EOD Report Submitted! 🎉</h2>
       <p className={`text-sm mb-1 ${c("text-slate-400","text-slate-500")}`}>Great work today, {authUser?.name?.split(" ")[0] || "there"}!</p>
+      {compliance && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Submitted {compliance.submitted} of {compliance.workingDays} working days this month.</p>}
       <Btn variant="secondary" onClick={() => setSubmitted(false)} className="mt-5">Edit Report</Btn>
     </div>
   );
@@ -3859,26 +4061,30 @@ function EODPage() {
   return (
     <div className="space-y-5">
       <div className={`rounded-2xl border p-5 ${c("bg-gradient-to-r from-slate-800/80 to-slate-800/40 border-white/[0.06]","bg-gradient-to-r from-slate-50 to-white border-slate-200")}`}>
-        <div className="flex items-center gap-4">
-          <div className={`w-12 h-12 rounded-2xl ${authUser?.avatarColor || "bg-indigo-600"} flex items-center justify-center text-lg font-bold text-white`}>{authUser?.avatar}</div>
-          <div>
-            <h1 className={`text-xl font-bold ${c("text-white","text-slate-900")}`}>End of Day Report</h1>
-            <p className={`text-sm mt-0.5 ${c("text-slate-400","text-slate-500")}`}>{authUser?.name} · {authUser?.title}</p>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-4">
+            <div className={`w-12 h-12 rounded-2xl ${authUser?.avatarColor || "bg-indigo-600"} flex items-center justify-center text-lg font-bold text-white`}>{authUser?.avatar}</div>
+            <div>
+              <h1 className={`text-xl font-bold ${c("text-white","text-slate-900")}`}>End of Day Report</h1>
+              <p className={`text-sm mt-0.5 ${c("text-slate-400","text-slate-500")}`}>{authUser?.name} · {authUser?.title}</p>
+            </div>
           </div>
+          {compliance && <div className="text-right"><p className={`text-lg font-bold ${c("text-white","text-slate-900")}`}>{compliance.submitted}/{compliance.workingDays}</p><p className={`text-[11px] ${c("text-slate-500","text-slate-400")}`}>working days this month</p></div>}
         </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
         <div className="space-y-4">
           <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-3 ${c("text-white","text-slate-900")}`}>Open Tasks</h3>
+            <h3 className={`text-sm font-semibold mb-3 ${c("text-white","text-slate-900")}`}>Tasks worked on today</h3>
             {tasks.length === 0 && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No open tasks — nice work!</p>}
             <div className="space-y-2">
-              {tasks.slice(0, 6).map((t: any) => (
-                <div key={t.id} className="flex items-center gap-2 text-xs">
+              {tasks.slice(0, 8).map((t: any) => (
+                <label key={t.id} className="flex items-center gap-2 text-xs cursor-pointer">
+                  <input type="checkbox" checked={selectedTaskIds.includes(t.id)} onChange={()=>toggleTask(t.id)} className="rounded"/>
                   <PriorityBadge priority={t.priority}/>
                   <span className={c("text-slate-300","text-slate-700")}>{t.title}</span>
-                </div>
+                </label>
               ))}
             </div>
           </Card>
@@ -3890,6 +4096,7 @@ function EODPage() {
                 <div key={h.id} className={`text-xs p-2 rounded-lg ${c("bg-slate-800/50","bg-slate-50")}`}>
                   <p className={`font-medium ${c("text-slate-300","text-slate-700")}`}>{h.date}</p>
                   <p className={`mt-0.5 truncate ${c("text-slate-500","text-slate-400")}`}>{h.summary}</p>
+                  {h.tasks?.length > 0 && <p className={`mt-1 truncate ${c("text-indigo-400","text-indigo-500")}`}>{h.tasks.join(", ")}</p>}
                 </div>
               ))}
             </div>
@@ -3920,6 +4127,103 @@ function EODPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function TeamEODView() {
+  const { c } = useTheme();
+  const { openModal, activeModal } = useModal();
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0,10));
+  const [data, setData] = useState<any>(null);
+  const [reminding, setReminding] = useState(false);
+  const [remindMsg, setRemindMsg] = useState("");
+
+  const load = () => fetch(`/api/eod/all?date=${date}`).then(r => r.json()).then(setData);
+  useEffect(() => {
+    if (activeModal === "eod-detail") return;
+    load();
+  }, [date, activeModal]);
+
+  const sendReminders = async () => {
+    setReminding(true);
+    setRemindMsg("");
+    try {
+      const res = await fetch("/api/eod/remind", { method: "POST" });
+      const d = await res.json();
+      setRemindMsg(res.ok ? `Reminded ${d.reminded} employee(s) who haven't submitted today.` : (d.error || "Could not send reminders."));
+    } finally {
+      setReminding(false);
+    }
+  };
+
+  if (!data) return null;
+  const missingCount = data.employees.filter((e:any)=>!e.submitted).length;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <FInput value={date} onChange={setDate} type="date" className="max-w-[180px]"/>
+        <Btn variant="secondary" size="sm" onClick={sendReminders} disabled={reminding}>{reminding?"Sending...":"Send Reminders Now"}</Btn>
+      </div>
+      {remindMsg && <p className={`text-xs ${c("text-slate-400","text-slate-500")}`}>{remindMsg}</p>}
+      <div className="grid grid-cols-2 gap-4">
+        <StatCard label="Submitted" value={String(data.employees.length - missingCount)} icon={CheckCircle2} iconColor="bg-emerald-600/40" trend="up"/>
+        <StatCard label="Missing" value={String(missingCount)} icon={AlertCircle} iconColor="bg-amber-600/40" trend="up"/>
+      </div>
+      <Card>
+        <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Reports — {data.date}</h3></div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Employee","Status","Summary"].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
+            <tbody>
+              {data.employees.map((e:any)=>(
+                <tr key={e.id}
+                  onClick={()=>e.submitted && openModal("eod-detail",{employee:e,date:data.date})}
+                  className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${e.submitted ? c("hover:bg-slate-700/20 cursor-pointer","hover:bg-slate-50 cursor-pointer") : ""}`}>
+                  <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{e.name}</span></div></td>
+                  <td className="px-4 py-3">{e.submitted ? <Badge variant="success">Submitted</Badge> : <Badge variant="warning">Missing</Badge>}</td>
+                  <td className={`px-4 py-3 text-sm max-w-xs truncate ${c("text-slate-400","text-slate-500")}`}>{e.summary || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function EODDetailModal({ onClose }: { onClose: () => void }) {
+  const { c } = useTheme();
+  const { modalData } = useModal();
+  const e = modalData?.employee;
+  if (!e) return null;
+
+  return (
+    <ModalOverlay title={e.name} subtitle={`${e.title} · ${modalData.date}`} onClose={onClose}>
+      <div className="space-y-4 text-sm">
+        <div className="flex items-center gap-3">
+          <Avatar initials={e.avatar} color={e.avatarColor}/>
+          <Badge variant="success">Submitted</Badge>
+        </div>
+        <div>
+          <p className={`text-[11px] uppercase tracking-wide mb-1 ${c("text-slate-500","text-slate-400")}`}>Accomplished</p>
+          <p className={c("text-slate-300","text-slate-700")}>{e.summary}</p>
+        </div>
+        {e.blockers && (
+          <div>
+            <p className={`text-[11px] uppercase tracking-wide mb-1 ${c("text-slate-500","text-slate-400")}`}>Blockers</p>
+            <p className={c("text-slate-300","text-slate-700")}>{e.blockers}</p>
+          </div>
+        )}
+        {e.tomorrowPlan && (
+          <div>
+            <p className={`text-[11px] uppercase tracking-wide mb-1 ${c("text-slate-500","text-slate-400")}`}>Tomorrow's Priorities</p>
+            <p className={`whitespace-pre-line ${c("text-slate-300","text-slate-700")}`}>{e.tomorrowPlan}</p>
+          </div>
+        )}
+      </div>
+    </ModalOverlay>
   );
 }
 

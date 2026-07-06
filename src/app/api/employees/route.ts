@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
   if (existing) return NextResponse.json({ error: "An employee with this email already exists." }, { status: 409 });
 
   const department = deptName ? await prisma.department.findUnique({ where: { name: deptName } }) : null;
+  const manager = body?.manager ? await prisma.employee.findFirst({ where: { name: body.manager } }) : null;
   const dbRole = (UI_TO_DB_ROLE[roleLevel] ?? "employee") as Role;
   const name = `${firstName} ${lastName ?? ""}`.trim();
   const avatarInitials = (firstName[0] + (lastName?.[0] ?? "")).toUpperCase();
@@ -99,6 +100,7 @@ export async function POST(req: NextRequest) {
       salary: body?.salary ? Math.round(Number(body.salary)) : null,
       permissions: JSON.stringify(["dashboard", "my-work", "tasks", "attendance", "leave", "profile"]),
       departmentId: department?.id ?? null,
+      managerId: manager?.id ?? null,
     },
   });
 

@@ -5,12 +5,12 @@ const prisma = new PrismaClient();
 
 const PERMISSIONS_BY_ROLE: Record<string, string[]> = {
   super_admin: ["*"],
-  first_level_manager: ["dashboard", "employees", "teams", "projects", "tasks", "attendance", "leave", "payroll", "performance", "kpi", "okr", "analytics", "reports", "settings", "my-work", "employee-profile"],
-  second_level_manager: ["dashboard", "employees", "teams", "projects", "tasks", "attendance", "leave", "performance", "kpi", "okr", "analytics", "reports", "my-work", "employee-profile"],
-  manager: ["dashboard", "employees", "teams", "projects", "tasks", "attendance", "leave", "performance", "my-work", "employee-profile", "knowledge"],
-  team_lead: ["dashboard", "projects", "tasks", "attendance", "leave", "my-work", "employee-profile", "knowledge", "calendar", "meetings"],
-  hr_admin: ["dashboard", "employees", "departments", "teams", "attendance", "leave", "payroll", "performance", "my-work", "employee-profile", "settings", "roles", "audit", "reports", "knowledge"],
-  employee: ["dashboard", "my-work", "tasks", "attendance", "leave", "calendar", "meetings", "knowledge", "profile"],
+  first_level_manager: ["dashboard", "employees", "teams", "projects", "tasks", "attendance", "leave", "payroll", "performance", "kpi", "okr", "analytics", "reports", "settings", "my-work", "employee-profile", "eod"],
+  second_level_manager: ["dashboard", "employees", "teams", "projects", "tasks", "attendance", "leave", "performance", "kpi", "okr", "analytics", "reports", "my-work", "employee-profile", "eod"],
+  manager: ["dashboard", "employees", "teams", "projects", "tasks", "attendance", "leave", "performance", "my-work", "employee-profile", "knowledge", "eod"],
+  team_lead: ["dashboard", "projects", "tasks", "attendance", "leave", "my-work", "employee-profile", "knowledge", "calendar", "meetings", "eod"],
+  hr_admin: ["dashboard", "employees", "departments", "teams", "attendance", "leave", "payroll", "performance", "my-work", "employee-profile", "settings", "roles", "audit", "reports", "knowledge", "eod"],
+  employee: ["dashboard", "my-work", "tasks", "attendance", "leave", "calendar", "meetings", "knowledge", "profile", "eod"],
 };
 
 const AVATAR_COLORS = ["bg-indigo-500", "bg-emerald-500", "bg-violet-500", "bg-amber-500", "bg-rose-500", "bg-cyan-500", "bg-pink-500", "bg-teal-500", "bg-sky-500", "bg-fuchsia-500", "bg-orange-500", "bg-lime-600"];
