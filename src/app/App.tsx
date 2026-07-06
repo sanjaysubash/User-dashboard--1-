@@ -3044,7 +3044,7 @@ function CreateTaskModal({ onClose }: { onClose: () => void }) {
   const priorityOpts = ["critical","high","medium","low"];
 
   const handleCreate = async () => {
-    if (!(f.title && f.project)) return;
+    if (!f.title.trim()) { setSubmitError("Task title is required."); return; }
     setSubmitting(true);
     setSubmitError("");
     try {
@@ -3075,7 +3075,7 @@ function CreateTaskModal({ onClose }: { onClose: () => void }) {
       <div className="space-y-4">
         <div><FieldLabel label="Task Title" required/><FInput value={f.title} onChange={v => set("title",v)} placeholder="e.g. Implement dark mode for dashboard"/></div>
         <div className="grid grid-cols-2 gap-4">
-          <div><FieldLabel label="Project" required/><FSelect value={f.project} onChange={v => set("project",v)}>{projectList.map(p => <option key={p}>{p}</option>)}</FSelect></div>
+          <div><FieldLabel label="Project"/><FSelect value={f.project} onChange={v => set("project",v)}><option value="">No Project</option>{projectList.map(p => <option key={p}>{p}</option>)}</FSelect></div>
           <div><FieldLabel label="Assignee"/><FSelect value={f.assignee} onChange={v => set("assignee",v)}><option value="">Unassigned</option>{employees.map(e => <option key={e.id}>{e.name}</option>)}</FSelect></div>
         </div>
         <div>
