@@ -1,20 +1,26 @@
-import { useState, useRef, useEffect, useCallback, createContext, useContext } from "react";
+"use client";
+
+import { useState, useEffect, createContext, useContext } from "react";
 import {
   LayoutDashboard, Users, Building2, Network, FolderKanban, CheckSquare,
   Calendar, Clock, PlaneTakeoff, DollarSign, Award, Target, BarChart3,
-  FileBarChart, BookOpen, FileText, MessageSquare, Bell, Video, Bot,
-  Sparkles, Settings, ShieldCheck, Key, CreditCard, LogOut, User,
+  FileBarChart, BookOpen, FileText, Bell, Video, Bot,
+  Settings, ShieldCheck, Key, CreditCard, LogOut, User,
   Search, Plus, Filter, Grid3X3, List, MoreHorizontal, ChevronDown,
   ChevronRight, ArrowUp, ArrowDown, ArrowUpRight, Star, Zap, AlertCircle,
   CheckCircle2, XCircle, TrendingUp, TrendingDown, Send, Paperclip,
-  Smile, Hash, Menu, X, Eye, Edit2, Trash2, Download, RefreshCw,
+  Smile, Menu, X, Eye, Edit2, Trash2, Download, RefreshCw,
   GripVertical, Play, Phone, Mail, MapPin, Globe, Activity, SlidersHorizontal,
-  Mic, Code, Layers, Sun, Moon, ChevronLeft, Tag, Info, Copy, Lock, Upload
+  Mic, Code, Layers, Sun, Moon, ChevronLeft, Tag, Info, Copy, Lock, Upload, PartyPopper
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from "recharts";
+import { DndProvider, useDrag, useDrop } from "react-dnd";
+import { HTML5Backend } from "react-dnd-html5-backend";
+
+const TASK_DRAG_TYPE = "TASK";
 
 // ─── THEME CONTEXT ────────────────────────────────────────────────────────────
 
@@ -67,33 +73,25 @@ interface AuthUser {
   roleLabel: string;
   dept: string;
   title: string;
-  password: string;
+  phone: string;
+  location: string;
   permissions: string[];
 }
-
-const demoAccounts: AuthUser[] = [
-  { id: 0, name: "Sanjay ", email: "sanjay.@riaura.com", avatar: "SJ", avatarColor: "bg-indigo-600", role: "super-admin", roleLabel: "Super Admin", dept: "Executive", title: "Chief Executive Officer", password: "Admin@2026", permissions: ["*"] },
-  { id: 10, name: "Ryan O'Brien", email: "ryan.o@riaura.com", avatar: "RO", avatarColor: "bg-lime-600", role: "1st-level-manager", roleLabel: "1st Level Manager", dept: "Sales", title: "Sales Director", password: "Director@2026", permissions: ["dashboard","employees","teams","projects","tasks","attendance","leave","payroll","performance","kpi","okr","analytics","reports","settings","my-work","employee-profile"] },
-  { id: 2, name: "Marcus Johnson", email: "marcus.j@riaura.com", avatar: "MJ", avatarColor: "bg-emerald-500", role: "2nd-level-manager", roleLabel: "2nd Level Manager", dept: "Product", title: "Product Manager", password: "SrMgr@2026", permissions: ["dashboard","employees","teams","projects","tasks","attendance","leave","performance","kpi","okr","analytics","reports","my-work","employee-profile"] },
-  { id: 1, name: "Sarah Chen", email: "sarah.chen@riaura.com", avatar: "SC", avatarColor: "bg-indigo-500", role: "manager", roleLabel: "Manager", dept: "Engineering", title: "Engineering Manager", password: "Manager@2026", permissions: ["dashboard","employees","teams","projects","tasks","attendance","leave","performance","my-work","employee-profile","chat","ai-assistant","knowledge"] },
-  { id: 6, name: "James Wilson", email: "james.w@riaura.com", avatar: "JW", avatarColor: "bg-cyan-500", role: "team-lead", roleLabel: "Team Lead", dept: "Engineering", title: "DevOps Team Lead", password: "TLead@2026", permissions: ["dashboard","projects","tasks","attendance","leave","my-work","employee-profile","chat","ai-assistant","knowledge","calendar","meetings"] },
-  { id: 7, name: "Elena Rodriguez", email: "elena.r@riaura.com", avatar: "ER", avatarColor: "bg-pink-500", role: "hr-admin", roleLabel: "HR Admin", dept: "HR", title: "HR Manager", password: "HRAdmin@2026", permissions: ["dashboard","employees","departments","teams","attendance","leave","payroll","performance","my-work","employee-profile","settings","roles","audit","reports","knowledge"] },
-  { id: 4, name: "David Kim", email: "david.kim@riaura.com", avatar: "DK", avatarColor: "bg-amber-500", role: "employee", roleLabel: "Employee", dept: "Analytics", title: "Data Scientist", password: "Emp@2026", permissions: ["dashboard","my-work","tasks","attendance","leave","calendar","meetings","chat","ai-assistant","knowledge","profile"] },
-];
 
 const AuthCtx = createContext<{
   authUser: AuthUser | null;
   login: (u: AuthUser) => void;
   logout: () => void;
-}>({ authUser: null, login: () => {}, logout: () => {} });
+  updateAuthUser: (u: AuthUser) => void;
+}>({ authUser: null, login: () => {}, logout: () => {}, updateAuthUser: () => {} });
 const useAuth = () => useContext(AuthCtx);
 
 // ─── MODAL CONTEXT ────────────────────────────────────────────────────────────
 
 type ModalName =
   | "add-employee" | "add-department" | "create-team" | "create-project"
-  | "create-task" | "create-event" | "schedule-meeting" | "apply-leave"
-  | "start-review-cycle" | null;
+  | "create-task" | "task-detail" | "create-event" | "schedule-meeting" | "apply-leave"
+  | "start-review-cycle" | "add-objective" | "add-article" | null;
 
 const ModalCtx = createContext<{
   openModal: (n: ModalName, data?: any) => void;
@@ -109,130 +107,23 @@ type Page =
   | "dashboard" | "employees" | "departments" | "teams"
   | "projects" | "tasks" | "calendar" | "attendance" | "leave"
   | "payroll" | "performance" | "kpi" | "okr" | "analytics"
-  | "reports" | "knowledge" | "chat" | "ai-assistant" | "settings"
+  | "reports" | "knowledge" | "settings"
   | "notifications" | "meetings" | "roles" | "audit" | "billing" | "profile"
   | "employee-profile" | "my-work" | "eod" | "payroll-expenses";
 
-// ─── SAMPLE DATA ──────────────────────────────────────────────────────────────
 
-const employees = [
-  { id: 1, name: "Sarah Chen", role: "Senior Engineer", dept: "Engineering", email: "sarah.chen@riaura.com", phone: "+1 (555) 001-0001", location: "San Francisco", status: "active", avatar: "SC", avatarColor: "bg-indigo-500", joined: "Jan 12, 2021", salary: 145000, attendance: 98 },
-  { id: 2, name: "Marcus Johnson", role: "Product Manager", dept: "Product", email: "marcus.j@riaura.com", phone: "+1 (555) 001-0002", location: "New York", status: "active", avatar: "MJ", avatarColor: "bg-emerald-500", joined: "Mar 5, 2020", salary: 135000, attendance: 96 },
-  { id: 3, name: "Priya Sharma", role: "UX Designer", dept: "Design", email: "priya.s@riaura.com", phone: "+1 (555) 001-0003", location: "Austin", status: "active", avatar: "PS", avatarColor: "bg-violet-500", joined: "Jun 20, 2022", salary: 120000, attendance: 97 },
-  { id: 4, name: "David Kim", role: "Data Scientist", dept: "Analytics", email: "david.kim@riaura.com", phone: "+1 (555) 001-0004", location: "Seattle", status: "active", avatar: "DK", avatarColor: "bg-amber-500", joined: "Sep 14, 2021", salary: 140000, attendance: 95 },
-  { id: 5, name: "Aisha Patel", role: "Marketing Lead", dept: "Marketing", email: "aisha.p@riaura.com", phone: "+1 (555) 001-0005", location: "Chicago", status: "on-leave", avatar: "AP", avatarColor: "bg-rose-500", joined: "Feb 28, 2020", salary: 115000, attendance: 88 },
-  { id: 6, name: "James Wilson", role: "DevOps Engineer", dept: "Engineering", email: "james.w@riaura.com", phone: "+1 (555) 001-0006", location: "Boston", status: "active", avatar: "JW", avatarColor: "bg-cyan-500", joined: "Nov 3, 2022", salary: 138000, attendance: 99 },
-  { id: 7, name: "Elena Rodriguez", role: "HR Manager", dept: "HR", email: "elena.r@riaura.com", phone: "+1 (555) 001-0007", location: "Miami", status: "active", avatar: "ER", avatarColor: "bg-pink-500", joined: "Apr 17, 2019", salary: 112000, attendance: 94 },
-  { id: 8, name: "Tom Nakamura", role: "Backend Engineer", dept: "Engineering", email: "tom.n@riaura.com", phone: "+1 (555) 001-0008", location: "Denver", status: "active", avatar: "TN", avatarColor: "bg-teal-500", joined: "Aug 22, 2021", salary: 142000, attendance: 97 },
-  { id: 9, name: "Grace Liu", role: "Finance Analyst", dept: "Finance", email: "grace.l@riaura.com", phone: "+1 (555) 001-0009", location: "San Jose", status: "active", avatar: "GL", avatarColor: "bg-orange-500", joined: "May 9, 2020", salary: 118000, attendance: 96 },
-  { id: 10, name: "Ryan O'Brien", role: "Sales Director", dept: "Sales", email: "ryan.o@riaura.com", phone: "+1 (555) 001-0010", location: "Dallas", status: "inactive", avatar: "RO", avatarColor: "bg-lime-600", joined: "Jan 30, 2018", salary: 155000, attendance: 72 },
-  { id: 11, name: "Nina Kowalski", role: "QA Engineer", dept: "Engineering", email: "nina.k@riaura.com", phone: "+1 (555) 001-0011", location: "Portland", status: "active", avatar: "NK", avatarColor: "bg-sky-500", joined: "Jul 11, 2022", salary: 115000, attendance: 98 },
-  { id: 12, name: "Omar Hassan", role: "Security Engineer", dept: "Engineering", email: "omar.h@riaura.com", phone: "+1 (555) 001-0012", location: "Atlanta", status: "active", avatar: "OH", avatarColor: "bg-fuchsia-500", joined: "Oct 25, 2021", salary: 148000, attendance: 97 },
-];
-
-const departments = [
-  { id: 1, name: "Engineering", head: "James Wilson", employees: 342, projects: 18, budget: 4200000, utilization: 87, color: "bg-indigo-500" },
-  { id: 2, name: "Product", head: "Marcus Johnson", employees: 56, projects: 12, budget: 1800000, utilization: 92, color: "bg-emerald-500" },
-  { id: 3, name: "Design", head: "Priya Sharma", employees: 38, projects: 8, budget: 950000, utilization: 78, color: "bg-violet-500" },
-  { id: 4, name: "Analytics", head: "David Kim", employees: 45, projects: 6, budget: 1200000, utilization: 84, color: "bg-amber-500" },
-  { id: 5, name: "Marketing", head: "Aisha Patel", employees: 62, projects: 14, budget: 2100000, utilization: 76, color: "bg-rose-500" },
-  { id: 6, name: "HR", head: "Elena Rodriguez", employees: 28, projects: 3, budget: 680000, utilization: 65, color: "bg-pink-500" },
-  { id: 7, name: "Finance", head: "Grace Liu", employees: 31, projects: 4, budget: 890000, utilization: 71, color: "bg-orange-500" },
-  { id: 8, name: "Sales", head: "Ryan O'Brien", employees: 94, projects: 9, budget: 3100000, utilization: 89, color: "bg-lime-600" },
-];
-
-const projects = [
-  { id: 1, name: "Riaura Platform v3.0", status: "in-progress", priority: "critical", progress: 68, team: 12, deadline: "Aug 15, 2026", budget: 850000, spent: 578000, manager: "Marcus Johnson", tasks: 124, completed: 84 },
-  { id: 2, name: "Mobile App Redesign", status: "in-progress", priority: "high", progress: 42, team: 6, deadline: "Sep 30, 2026", budget: 320000, spent: 134400, manager: "Priya Sharma", tasks: 67, completed: 28 },
-  { id: 3, name: "AI Analytics Engine", status: "planning", priority: "high", progress: 15, team: 8, deadline: "Dec 1, 2026", budget: 1200000, spent: 180000, manager: "David Kim", tasks: 89, completed: 13 },
-  { id: 4, name: "Security Audit 2026", status: "review", priority: "critical", progress: 91, team: 4, deadline: "Jul 10, 2026", budget: 150000, spent: 136500, manager: "Omar Hassan", tasks: 32, completed: 29 },
-  { id: 5, name: "Customer Portal 2.0", status: "completed", priority: "medium", progress: 100, team: 9, deadline: "Jun 1, 2026", budget: 540000, spent: 521000, manager: "Sarah Chen", tasks: 98, completed: 98 },
-  { id: 6, name: "Data Warehouse Migration", status: "in-progress", priority: "high", progress: 54, team: 5, deadline: "Oct 15, 2026", budget: 670000, spent: 361800, manager: "Tom Nakamura", tasks: 56, completed: 30 },
-  { id: 7, name: "Brand Identity Refresh", status: "planning", priority: "low", progress: 8, team: 3, deadline: "Nov 20, 2026", budget: 180000, spent: 14400, manager: "Priya Sharma", tasks: 24, completed: 2 },
-  { id: 8, name: "Sales CRM Integration", status: "in-progress", priority: "high", progress: 77, team: 7, deadline: "Jul 25, 2026", budget: 290000, spent: 223300, manager: "Ryan O'Brien", tasks: 43, completed: 33 },
-];
-
-const tasks = [
-  { id: 1, title: "Implement OAuth2 authentication flow", project: "Riaura Platform v3.0", assignee: "Sarah Chen", assigneeAvatar: "SC", assigneeColor: "bg-indigo-500", priority: "high", status: "in-progress", due: "Jul 5, 2026", tags: ["backend", "security"] },
-  { id: 2, title: "Design new onboarding screens", project: "Mobile App Redesign", assignee: "Priya Sharma", assigneeAvatar: "PS", assigneeColor: "bg-violet-500", priority: "medium", status: "todo", due: "Jul 12, 2026", tags: ["design", "mobile"] },
-  { id: 3, title: "Set up CI/CD pipeline for staging", project: "Riaura Platform v3.0", assignee: "James Wilson", assigneeAvatar: "JW", assigneeColor: "bg-cyan-500", priority: "critical", status: "todo", due: "Jul 3, 2026", tags: ["devops"] },
-  { id: 4, title: "Write unit tests for payment module", project: "Riaura Platform v3.0", assignee: "Nina Kowalski", assigneeAvatar: "NK", assigneeColor: "bg-sky-500", priority: "high", status: "in-progress", due: "Jul 8, 2026", tags: ["testing"] },
-  { id: 5, title: "Migrate legacy database schemas", project: "Data Warehouse Migration", assignee: "Tom Nakamura", assigneeAvatar: "TN", assigneeColor: "bg-teal-500", priority: "high", status: "todo", due: "Jul 20, 2026", tags: ["database"] },
-  { id: 6, title: "Conduct penetration testing", project: "Security Audit 2026", assignee: "Omar Hassan", assigneeAvatar: "OH", assigneeColor: "bg-fuchsia-500", priority: "critical", status: "review", due: "Jul 7, 2026", tags: ["security"] },
-  { id: 7, title: "Create API documentation", project: "Riaura Platform v3.0", assignee: "Sarah Chen", assigneeAvatar: "SC", assigneeColor: "bg-indigo-500", priority: "low", status: "done", due: "Jun 28, 2026", tags: ["docs"] },
-  { id: 8, title: "Analyze user retention metrics", project: "AI Analytics Engine", assignee: "David Kim", assigneeAvatar: "DK", assigneeColor: "bg-amber-500", priority: "medium", status: "in-progress", due: "Jul 15, 2026", tags: ["analytics"] },
-  { id: 9, title: "Build predictive churn model", project: "AI Analytics Engine", assignee: "David Kim", assigneeAvatar: "DK", assigneeColor: "bg-amber-500", priority: "high", status: "todo", due: "Aug 1, 2026", tags: ["ml"] },
-  { id: 10, title: "Update brand color system", project: "Brand Identity Refresh", assignee: "Priya Sharma", assigneeAvatar: "PS", assigneeColor: "bg-violet-500", priority: "low", status: "done", due: "Jun 25, 2026", tags: ["design"] },
-  { id: 11, title: "Integrate Salesforce CRM API", project: "Sales CRM Integration", assignee: "Ryan O'Brien", assigneeAvatar: "RO", assigneeColor: "bg-lime-600", priority: "high", status: "in-progress", due: "Jul 18, 2026", tags: ["integration"] },
-  { id: 12, title: "Performance audit & optimization", project: "Riaura Platform v3.0", assignee: "James Wilson", assigneeAvatar: "JW", assigneeColor: "bg-cyan-500", priority: "medium", status: "review", due: "Jul 10, 2026", tags: ["performance"] },
-];
-
-const chatChannels = [
-  { id: 1, name: "general", unread: 3 },
-  { id: 2, name: "engineering", unread: 12 },
-  { id: 3, name: "product-updates", unread: 0 },
-  { id: 4, name: "design-system", unread: 5 },
-  { id: 5, name: "ops-alerts", unread: 0 },
-  { id: 6, name: "random", unread: 8 },
-];
-
-const chatMessages = [
-  { id: 1, user: "Marcus Johnson", avatar: "MJ", color: "bg-emerald-500", time: "9:02 AM", text: "Morning team! Quick reminder: platform v3 sync at 2 PM today. Come prepared with sprint status updates.", reactions: [{ emoji: "👍", count: 8 }, { emoji: "✅", count: 4 }] },
-  { id: 2, user: "Sarah Chen", avatar: "SC", color: "bg-indigo-500", time: "9:14 AM", text: "On it — auth module at 68% completion. Should hit the milestone by end of next week.", reactions: [{ emoji: "🚀", count: 3 }] },
-  { id: 3, user: "James Wilson", avatar: "JW", color: "bg-cyan-500", time: "9:21 AM", text: "Staging CI/CD pipeline almost ready. Running final smoke tests. Green by noon.", reactions: [{ emoji: "🎉", count: 6 }, { emoji: "👏", count: 2 }] },
-  { id: 4, user: "Priya Sharma", avatar: "PS", color: "bg-violet-500", time: "10:03 AM", text: "Shared onboarding wireframes in #design-system. Would love feedback before moving to hi-fi!", reactions: [] },
-  { id: 5, user: "David Kim", avatar: "DK", color: "bg-amber-500", time: "10:47 AM", text: "Analytics showing a 23% spike in API errors since yesterday's deploy. @James can you check the logs?", reactions: [{ emoji: "👀", count: 2 }] },
-  { id: 6, user: "James Wilson", avatar: "JW", color: "bg-cyan-500", time: "10:52 AM", text: "On it! Rate limiting issue on the new endpoint. Pushing a hotfix now.", reactions: [{ emoji: "💪", count: 4 }] },
-];
-
-const aiInitMessages = [
-  { role: "assistant", text: "Hello! I'm your RIAURA AI Assistant. I have full access to your organization's data, projects, HR records, and analytics. How can I help you today?" },
-];
-
-const areaChartData = [
-  { month: "Jan", employees: 1180, revenue: 820 },
-  { month: "Feb", employees: 1195, revenue: 890 },
-  { month: "Mar", employees: 1210, revenue: 940 },
-  { month: "Apr", employees: 1220, revenue: 870 },
-  { month: "May", employees: 1234, revenue: 1020 },
-  { month: "Jun", employees: 1248, revenue: 1120 },
-];
-
-const barChartData = [
-  { dept: "Eng", target: 95, actual: 87 },
-  { dept: "Product", target: 90, actual: 92 },
-  { dept: "Design", target: 85, actual: 78 },
-  { dept: "Analytics", target: 88, actual: 84 },
-  { dept: "Marketing", target: 80, actual: 76 },
-  { dept: "Sales", target: 92, actual: 89 },
-];
-
-const projectStatusData = [
-  { name: "Completed", value: 18, color: "#22C55E" },
-  { name: "In Progress", value: 12, color: "#4F46E5" },
-  { name: "At Risk", value: 7, color: "#F59E0B" },
-  { name: "On Hold", value: 5, color: "#EF4444" },
-];
-
-const kpiLineData = [
-  { month: "Q1", engineering: 87, product: 92, design: 78, sales: 85 },
-  { month: "Q2", engineering: 91, product: 88, design: 82, sales: 89 },
-  { month: "Q3", engineering: 89, product: 94, design: 86, sales: 91 },
-  { month: "Q4", engineering: 94, product: 97, design: 90, sales: 93 },
-];
-
-const attendanceData = Array.from({ length: 30 }, (_, i) => ({
-  day: i + 1, present: Math.random() > 0.15, late: Math.random() > 0.85,
-}));
-
-const payrollData = [
-  { month: "Jan", gross: 4820000, net: 3780000 },
-  { month: "Feb", gross: 4820000, net: 3790000 },
-  { month: "Mar", gross: 4950000, net: 3880000 },
-  { month: "Apr", gross: 4950000, net: 3860000 },
-  { month: "May", gross: 5100000, net: 3990000 },
-  { month: "Jun", gross: 5100000, net: 4010000 },
-];
+const RESOURCE_ICONS: Record<string, React.ElementType> = {
+  Tasks: CheckSquare, Leave: PlaneTakeoff, Meetings: Video, Employees: Users, Departments: Building2,
+  Projects: FolderKanban, Payroll: DollarSign, Settings: Settings, Roles: ShieldCheck, Profile: User,
+  OKR: Target, "Knowledge Base": BookOpen, Billing: CreditCard, Performance: Award, Calendar: Calendar,
+};
+const RESOURCE_COLORS: Record<string, string> = {
+  Tasks: "text-indigo-500 bg-indigo-500/10", Leave: "text-emerald-500 bg-emerald-500/10", Meetings: "text-cyan-500 bg-cyan-500/10",
+  Employees: "text-violet-500 bg-violet-500/10", Departments: "text-violet-500 bg-violet-500/10", Projects: "text-amber-500 bg-amber-500/10",
+  Payroll: "text-emerald-500 bg-emerald-500/10", Settings: "text-slate-400 bg-slate-500/10", Roles: "text-red-500 bg-red-500/10",
+  Profile: "text-slate-400 bg-slate-500/10", OKR: "text-indigo-500 bg-indigo-500/10", "Knowledge Base": "text-amber-500 bg-amber-500/10",
+  Billing: "text-violet-500 bg-violet-500/10", Performance: "text-rose-500 bg-rose-500/10", Calendar: "text-rose-500 bg-rose-500/10",
+};
 
 // ─── SHARED COMPONENTS ────────────────────────────────────────────────────────
 
@@ -253,9 +144,9 @@ function Avatar({ initials, color = "bg-indigo-500", size = "md" }: { initials: 
   return <div className={`${sizes[size]} ${color} rounded-full flex items-center justify-center font-bold text-white flex-shrink-0`}>{initials}</div>;
 }
 
-function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+function Card({ children, className = "", onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) {
   const { c } = useTheme();
-  return <div className={`${c("bg-slate-800/60 border-white/[0.06]","bg-white border-slate-200")} border rounded-xl ${className}`}>{children}</div>;
+  return <div onClick={onClick} className={`${c("bg-slate-800/60 border-white/[0.06]","bg-white border-slate-200")} border rounded-xl ${className}`}>{children}</div>;
 }
 
 function StatCard({ label, value, change, changeLabel, icon: Icon, iconColor, trend }: { label: string; value: string; change?: string; changeLabel?: string; icon: React.ElementType; iconColor: string; trend?: "up"|"down" }) {
@@ -322,7 +213,7 @@ function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: st
   );
 }
 
-function Btn({ children, variant="primary", size="md", onClick, icon: Icon, className="" }: { children?: React.ReactNode; variant?: "primary"|"secondary"|"ghost"|"danger"; size?: "sm"|"md"; onClick?: ()=>void; icon?: React.ElementType; className?: string }) {
+function Btn({ children, variant="primary", size="md", onClick, icon: Icon, className="", disabled=false }: { children?: React.ReactNode; variant?: "primary"|"secondary"|"ghost"|"danger"; size?: "sm"|"md"; onClick?: ()=>void; icon?: React.ElementType; className?: string; disabled?: boolean }) {
   const { c } = useTheme();
   const variants = {
     primary: "bg-indigo-600 hover:bg-indigo-500 text-white",
@@ -332,7 +223,7 @@ function Btn({ children, variant="primary", size="md", onClick, icon: Icon, clas
   };
   const sizes = { sm:"px-3 py-1.5 text-xs gap-1.5", md:"px-4 py-2 text-sm gap-2" };
   return (
-    <button onClick={onClick} className={`inline-flex items-center font-medium rounded-lg transition-colors ${variants[variant]} ${sizes[size]} ${className}`}>
+    <button onClick={onClick} disabled={disabled} className={`inline-flex items-center font-medium rounded-lg transition-colors disabled:opacity-50 disabled:pointer-events-none ${variants[variant]} ${sizes[size]} ${className}`}>
       {Icon && <Icon size={size==="sm"?13:15}/>}
       {children}
     </button>
@@ -358,7 +249,7 @@ const navGroups = [
   { label:"Work", items:[{id:"projects",label:"Projects",icon:FolderKanban},{id:"tasks",label:"Tasks",icon:CheckSquare},{id:"calendar",label:"Calendar",icon:Calendar},{id:"meetings",label:"Meetings",icon:Video}] },
   { label:"HR", items:[{id:"attendance",label:"Attendance",icon:Clock},{id:"leave",label:"Leave",icon:PlaneTakeoff},{id:"payroll",label:"Payroll",icon:DollarSign},{id:"payroll-expenses",label:"Expenses",icon:BarChart3},{id:"performance",label:"Performance",icon:Award}] },
   { label:"Analytics", items:[{id:"kpi",label:"KPI",icon:Target},{id:"okr",label:"OKR",icon:Zap},{id:"analytics",label:"Analytics",icon:BarChart3},{id:"reports",label:"Reports",icon:FileBarChart}] },
-  { label:"Workspace", items:[{id:"knowledge",label:"Knowledge Base",icon:BookOpen},{id:"chat",label:"Chat",icon:MessageSquare,badge:20},{id:"notifications",label:"Notifications",icon:Bell,badge:5},{id:"ai-assistant",label:"AI Assistant",icon:Bot},{id:"eod",label:"EOD Report",icon:FileText}] },
+  { label:"Workspace", items:[{id:"knowledge",label:"Knowledge Base",icon:BookOpen},{id:"notifications",label:"Notifications",icon:Bell},{id:"eod",label:"EOD Report",icon:FileText}] },
   { label:"Admin", items:[{id:"settings",label:"Settings",icon:Settings},{id:"roles",label:"Roles & Permissions",icon:ShieldCheck},{id:"audit",label:"Audit Logs",icon:Activity},{id:"billing",label:"Billing",icon:CreditCard}] },
 ];
 
@@ -366,6 +257,13 @@ function Sidebar({ activePage, onNavigate, collapsed, onToggle }: { activePage: 
   const { authUser, logout } = useAuth();
   const perms = authUser?.permissions || ["*"];
   const hasAccess = (id: string) => perms.includes("*") || perms.includes(id);
+  const [unreadCount, setUnreadCount] = useState(0);
+  useEffect(() => {
+    const load = () => fetch("/api/notifications").then(r => r.json()).then(d => setUnreadCount((d.notifications ?? []).filter((n:any)=>!n.read).length)).catch(()=>{});
+    load();
+    const id = setInterval(load, 30000);
+    return () => clearInterval(id);
+  }, [activePage]);
   return (
     <aside className={`flex flex-col h-full flex-shrink-0 transition-all duration-300 ${collapsed?"w-16":"w-60"}`}
       style={{ background:DARK.sidebar, borderRight:"1px solid rgba(255,255,255,0.06)" }}>
@@ -389,7 +287,7 @@ function Sidebar({ activePage, onNavigate, collapsed, onToggle }: { activePage: 
                       className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors group relative ${isActive?"bg-indigo-600/20 text-indigo-400":"text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"} ${collapsed?"justify-center":""}`}>
                       <Icon size={16} className={`flex-shrink-0 ${isActive?"text-indigo-400":"text-slate-500 group-hover:text-slate-300"}`}/>
                       {!collapsed && <span className="flex-1 text-left font-medium">{item.label}</span>}
-                      {!collapsed && (item as any).badge && <span className="text-[10px] bg-indigo-600 text-white rounded-full px-1.5 py-0.5 font-semibold">{(item as any).badge}</span>}
+                      {!collapsed && item.id==="notifications" && unreadCount>0 && <span className="text-[10px] bg-indigo-600 text-white rounded-full px-1.5 py-0.5 font-semibold">{unreadCount}</span>}
                       {isActive && !collapsed && <div className="w-1 h-1 rounded-full bg-indigo-400 absolute right-2.5"/>}
                     </button>
                   );
@@ -408,15 +306,15 @@ function Sidebar({ activePage, onNavigate, collapsed, onToggle }: { activePage: 
             </div>
           </div>
         )}
-        <button onClick={logout} className={`w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-white/[0.04] transition-colors ${collapsed?"justify-center":""}`}>
-          <div className={`w-7 h-7 rounded-full ${authUser?.avatarColor||"bg-indigo-600"} flex items-center justify-center text-xs font-bold text-white flex-shrink-0`}>{authUser?.avatar||"SJ"}</div>
+        <button onClick={logout} title="Sign out" className={`w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-white/[0.04] transition-colors ${collapsed?"justify-center":""}`}>
+          <div className={`w-7 h-7 rounded-full ${authUser?.avatarColor||"bg-indigo-600"} flex items-center justify-center text-xs font-bold text-white flex-shrink-0`}>{authUser?.avatar||"?"}</div>
           {!collapsed && (
             <>
               <div className="flex-1 text-left min-w-0">
-                <div className="text-xs font-semibold text-slate-200 truncate">{authUser?.name||"Sanjay Iyer"}</div>
+                <div className="text-xs font-semibold text-slate-200 truncate">{authUser?.name||""}</div>
                 <div className="text-[10px] text-slate-500 truncate">{authUser?.title||"Admin"}</div>
               </div>
-              <LogOut size={14} className="text-slate-600 hover:text-red-400 flex-shrink-0" title="Sign out"/>
+              <LogOut size={14} className="text-slate-600 hover:text-red-400 flex-shrink-0"/>
             </>
           )}
         </button>
@@ -478,7 +376,15 @@ function DashboardPage() {
   const col = light?LIGHT:DARK;
   const hour = new Date().getHours();
   const greeting = hour<12?"Good morning":hour<17?"Good afternoon":"Good evening";
-  const firstName = authUser?.name.split(" ")[0] || "Sanjay";
+  const firstName = authUser?.name.split(" ")[0] || "there";
+  const [stats, setStats] = useState<any>(null);
+  const [myTasks, setMyTasks] = useState<any[]>([]);
+  const [now, setNow] = useState(new Date());
+  useEffect(() => { fetch("/api/dashboard/stats").then(r => r.json()).then(setStats); }, []);
+  useEffect(() => {
+    fetch("/api/tasks").then(r => r.json()).then(d => setMyTasks((d.tasks ?? []).filter((t: any) => t.assignee === authUser?.name)));
+  }, [authUser]);
+  useEffect(() => { const id = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(id); }, []);
 
   return (
     <div className="space-y-6">
@@ -488,77 +394,54 @@ function DashboardPage() {
           <p className={`text-sm mt-1 ${c("text-slate-400","text-slate-500")}`}>Here's what's happening across your organization today.</p>
         </div>
         <div className="text-right">
-          <div className={`text-sm font-medium ${c("text-slate-200","text-slate-700")}`}>Saturday, Jun 28 2026</div>
-          <div className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>10:24 AM IST</div>
+          <div className={`text-sm font-medium ${c("text-slate-200","text-slate-700")}`}>{now.toLocaleDateString("en-US",{weekday:"long",month:"short",day:"numeric",year:"numeric",timeZone:"Asia/Kolkata"})}</div>
+          <div className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{now.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit",timeZone:"Asia/Kolkata"})} IST</div>
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        <StatCard label="Total Employees" value="1,248" change="+14" changeLabel=" this month" icon={Users} iconColor="bg-indigo-600/40" trend="up"/>
-        <StatCard label="Present Today" value="1,076" change="86.2%" changeLabel=" attendance" icon={CheckCircle2} iconColor="bg-emerald-600/40" trend="up"/>
-        <StatCard label="Active Projects" value="42" change="+3" changeLabel=" this week" icon={FolderKanban} iconColor="bg-violet-600/40" trend="up"/>
-        <StatCard label="Team Completion" value="78.4%" change="+2.1%" changeLabel=" vs last month" icon={TrendingUp} iconColor="bg-amber-600/40" trend="up"/>
-        <StatCard label="Overdue Tasks" value="23" change="-5" changeLabel=" vs yesterday" icon={AlertCircle} iconColor="bg-red-600/40" trend="down"/>
+        <StatCard label="Total Employees" value={stats ? String(stats.totalEmployees) : "…"} icon={Users} iconColor="bg-indigo-600/40" trend="up"/>
+        <StatCard label="Present Today" value={stats ? String(stats.presentToday) : "…"} change={stats ? `${stats.presentPct}%` : undefined} changeLabel=" attendance" icon={CheckCircle2} iconColor="bg-emerald-600/40" trend="up"/>
+        <StatCard label="Active Projects" value={stats ? String(stats.activeProjects) : "…"} icon={FolderKanban} iconColor="bg-violet-600/40" trend="up"/>
+        <StatCard label="Task Completion" value={stats ? `${stats.taskCompletionPct}%` : "…"} icon={TrendingUp} iconColor="bg-amber-600/40" trend="up"/>
+        <StatCard label="Overdue Tasks" value={stats ? String(stats.overdueTasks) : "…"} icon={AlertCircle} iconColor="bg-red-600/40" trend={stats?.overdueTasks > 0 ? "down" : "up"}/>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Card className="lg:col-span-2 p-5">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Work Overview</h3>
-              <p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>Employees & revenue trends</p>
-            </div>
-            <div className="flex gap-1">
-              {["7D","30D","6M","1Y"].map(r=><button key={r} className={`px-2.5 py-1 text-xs rounded-md transition-colors ${r==="6M"?"bg-indigo-600 text-white":c("text-slate-500 hover:text-slate-300 hover:bg-slate-700/50","text-slate-500 hover:text-slate-700 hover:bg-slate-100")}`}>{r}</button>)}
-            </div>
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={areaChartData}>
-              <defs>
-                <linearGradient id="empGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4F46E5" stopOpacity={0.3}/><stop offset="95%" stopColor="#4F46E5" stopOpacity={0}/></linearGradient>
-                <linearGradient id="revGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#22C55E" stopOpacity={0.3}/><stop offset="95%" stopColor="#22C55E" stopOpacity={0}/></linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/>
-              <XAxis dataKey="month" tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false}/>
-              <YAxis tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false}/>
-              <Tooltip content={(p:any)=><ChartTip {...p} light={light}/>}/>
-              <Area key="dash-employees" type="monotone" dataKey="employees" name="Employees" stroke="#4F46E5" strokeWidth={2} fill="url(#empGrad)"/>
-              <Area key="dash-revenue" type="monotone" dataKey="revenue" name="Revenue (K)" stroke="#22C55E" strokeWidth={2} fill="url(#revGrad)"/>
-            </AreaChart>
-          </ResponsiveContainer>
-        </Card>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Project Status</h3>
-            <Badge variant="info">42 Total</Badge>
+            <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Task Status</h3>
+            <Badge variant="info">{stats?.totalTasks ?? 0} Total</Badge>
           </div>
-          <ResponsiveContainer width="100%" height={160}>
-            <PieChart>
-              <Pie data={projectStatusData} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={3} dataKey="value">
-                {projectStatusData.map((entry,i)=><Cell key={i} fill={entry.color}/>)}
-              </Pie>
-              <Tooltip content={(p:any)=><ChartTip {...p} light={light}/>}/>
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="space-y-2 mt-2">
-            {projectStatusData.map(d=>(
-              <div key={d.name} className="flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full" style={{ background:d.color }}/><span className={c("text-slate-400","text-slate-500")}>{d.name}</span></div>
-                <span className={`font-semibold ${c("text-slate-200","text-slate-700")}`}>{d.value}</span>
+          {!stats?.totalTasks ? <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No tasks created yet.</p> : (
+            <>
+              <ResponsiveContainer width="100%" height={160}>
+                <PieChart>
+                  <Pie data={stats.taskStatusBreakdown} cx="50%" cy="50%" innerRadius={45} outerRadius={70} paddingAngle={3} dataKey="value">
+                    {stats.taskStatusBreakdown.map((entry:any,i:number)=><Cell key={i} fill={entry.color}/>)}
+                  </Pie>
+                  <Tooltip content={(p:any)=><ChartTip {...p} light={light}/>}/>
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="space-y-2 mt-2">
+                {stats.taskStatusBreakdown.map((d:any)=>(
+                  <div key={d.name} className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full" style={{ background:d.color }}/><span className={c("text-slate-400","text-slate-500")}>{d.name}</span></div>
+                    <span className={`font-semibold ${c("text-slate-200","text-slate-700")}`}>{d.value}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
         </Card>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>My Tasks</h3>
-            <Badge variant="default">8 open</Badge>
+            <Badge variant="default">{myTasks.filter((t:any)=>t.status!=="done").length} open</Badge>
           </div>
+          {myTasks.length===0 && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No tasks assigned to you yet.</p>}
           <div className="space-y-2.5">
-            {tasks.slice(0,5).map(t=>(
+            {myTasks.slice(0,5).map((t:any)=>(
               <div key={t.id} className={`flex items-start gap-3 p-2.5 rounded-lg ${c("hover:bg-slate-700/30","hover:bg-slate-50")} transition-colors cursor-pointer`}>
                 <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${t.priority==="critical"?"bg-red-500":t.priority==="high"?"bg-amber-500":"bg-indigo-500"}`}/>
                 <div className="flex-1 min-w-0">
@@ -570,64 +453,56 @@ function DashboardPage() {
             ))}
           </div>
         </Card>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card className="p-5">
           <div className="flex items-center justify-between mb-4">
-            <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Top Performers</h3>
-            <button className="text-xs text-indigo-500 hover:text-indigo-400">View all</button>
+            <div>
+              <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Task Status by Department</h3>
+              <p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>Real-time breakdown of all tasks</p>
+            </div>
           </div>
-          <div className="space-y-3">
-            {employees.slice(0,5).map((e,i)=>(
-              <div key={e.id} className="flex items-center gap-3">
-                <span className={`text-xs w-4 font-bold ${i===0?"text-amber-500":c("text-slate-600","text-slate-400")}`}>#{i+1}</span>
-                <Avatar initials={e.avatar} color={e.avatarColor} size="sm"/>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-xs font-medium truncate ${c("text-slate-200","text-slate-700")}`}>{e.name}</p>
-                  <p className={`text-[10px] ${c("text-slate-500","text-slate-400")}`}>{e.dept}</p>
-                </div>
-                <span className="text-xs font-semibold text-emerald-500">{e.attendance}%</span>
-              </div>
-            ))}
-          </div>
+          {!stats?.taskStatusByDept?.length ? <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No tasks assigned to any department yet.</p> : (
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={stats.taskStatusByDept} barGap={2}>
+                <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/>
+                <XAxis dataKey="dept" tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false}/>
+                <YAxis tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false} allowDecimals={false}/>
+                <Tooltip content={(p:any)=><ChartTip {...p} light={light}/>}/>
+                <Legend wrapperStyle={{ fontSize:11, color:col.tickColor }}/>
+                <Bar key="dash-todo" dataKey="todo" name="To Do" fill="#64748B" radius={[4,4,0,0]}/>
+                <Bar key="dash-inprogress" dataKey="in-progress" name="In Progress" fill="#4F46E5" radius={[4,4,0,0]}/>
+                <Bar key="dash-review" dataKey="review" name="In Review" fill="#F59E0B" radius={[4,4,0,0]}/>
+                <Bar key="dash-done" dataKey="done" name="Done" fill="#22C55E" radius={[4,4,0,0]}/>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </Card>
         <Card className="p-5">
           <div className="flex items-center gap-2 mb-4">
-            <div className="w-6 h-6 rounded-lg bg-indigo-600/20 flex items-center justify-center"><Sparkles size={13} className="text-indigo-500"/></div>
-            <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>AI Insights</h3>
+            <div className="w-6 h-6 rounded-lg bg-indigo-600/20 flex items-center justify-center"><Activity size={13} className="text-indigo-500"/></div>
+            <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Recent Activity</h3>
           </div>
-          <div className="space-y-3">
-            {[
-              {icon:TrendingUp,color:"text-emerald-500 bg-emerald-500/10",text:"Engineering productivity up 12% this week. Top: Sarah Chen, James Wilson."},
-              {icon:AlertCircle,color:"text-amber-500 bg-amber-500/10",text:"3 projects risk missing Q3 deadlines. Recommend resource reallocation."},
-              {icon:Users,color:"text-indigo-500 bg-indigo-500/10",text:"5 employees added in June — 2 Engineering, 2 Sales, 1 HR."},
-            ].map((ins,i)=>(
-              <div key={i} className={`flex items-start gap-2.5 p-2.5 rounded-lg ${c("bg-slate-700/20","bg-slate-50")}`}>
-                <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${ins.color}`}><ins.icon size={12}/></div>
-                <p className={`text-[11px] leading-relaxed ${c("text-slate-400","text-slate-500")}`}>{ins.text}</p>
-              </div>
-            ))}
-          </div>
+          {!stats?.recentActivity?.length ? <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No activity yet.</p> : (
+            <div className="space-y-3">
+              {stats.recentActivity.map((a:any,i:number)=>{
+                const Icon = RESOURCE_ICONS[a.resource] ?? Activity;
+                const color = RESOURCE_COLORS[a.resource] ?? "text-indigo-500 bg-indigo-500/10";
+                return (
+                  <div key={i} className={`flex items-start gap-2.5 p-2.5 rounded-lg ${c("bg-slate-700/20","bg-slate-50")}`}>
+                    <div className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 ${color}`}><Icon size={12}/></div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-[11px] leading-relaxed ${c("text-slate-400","text-slate-500")}`}><strong className={c("text-slate-300","text-slate-600")}>{a.actor}</strong> {a.action}</p>
+                      <p className={`text-[10px] mt-0.5 ${c("text-slate-600","text-slate-400")}`}>{a.time}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </Card>
       </div>
-
-      <Card className="p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Department Performance vs Target</h3>
-            <p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>Efficiency scores — June 2026</p>
-          </div>
-        </div>
-        <ResponsiveContainer width="100%" height={180}>
-          <BarChart data={barChartData} barGap={2}>
-            <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/>
-            <XAxis dataKey="dept" tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false}/>
-            <YAxis tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false} domain={[60,100]}/>
-            <Tooltip content={(p:any)=><ChartTip {...p} light={light}/>}/>
-            <Legend wrapperStyle={{ fontSize:11, color:col.tickColor }}/>
-            <Bar key="dash-target" dataKey="target" name="Target" fill={light?"#CBD5E1":"#334155"} radius={[4,4,0,0]}/>
-            <Bar key="dash-actual" dataKey="actual" name="Actual" fill="#4F46E5" radius={[4,4,0,0]}/>
-          </BarChart>
-        </ResponsiveContainer>
-      </Card>
     </div>
   );
 }
@@ -636,19 +511,26 @@ function DashboardPage() {
 
 function EmployeesPage() {
   const { c } = useTheme();
-  const { openModal } = useModal();
+  const { openModal, activeModal } = useModal();
   const { setSelectedEmployeeId, navigateTo } = useApp();
   const [view, setView] = useState<"grid"|"table">("grid");
   const [search, setSearch] = useState("");
   const [deptFilter, setDeptFilter] = useState("All");
-  const depts = ["All",...Array.from(new Set(employees.map(e=>e.dept)))];
-  const filtered = employees.filter(e=>(deptFilter==="All"||e.dept===deptFilter)&&(e.name.toLowerCase().includes(search.toLowerCase())||e.role.toLowerCase().includes(search.toLowerCase())));
-  const openProfile = (emp: typeof employees[0]) => { setSelectedEmployeeId(emp.id); navigateTo("employee-profile"); };
+  const [employees, setEmployees] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (activeModal === "add-employee") return; // refetch after it closes, not while open
+    fetch("/api/employees").then(r => r.json()).then(d => setEmployees(d.employees ?? []));
+  }, [activeModal]);
+
+  const depts = ["All",...Array.from(new Set(employees.map((e: any)=>e.dept)))];
+  const filtered = employees.filter((e: any)=>(deptFilter==="All"||e.dept===deptFilter)&&(e.name.toLowerCase().includes(search.toLowerCase())||e.role.toLowerCase().includes(search.toLowerCase())));
+  const openProfile = (emp: any) => { setSelectedEmployeeId(emp.id); navigateTo("employee-profile"); };
 
   return (
     <div>
       <PageHeader title="Employee Directory" subtitle={`${filtered.length} employees`}
-        actions={<><Btn variant="secondary" size="sm" icon={Download}>Export</Btn><Btn size="sm" icon={Plus} onClick={()=>openModal("add-employee")}>Add Employee</Btn></>}/>
+        actions={<><Btn variant="secondary" size="sm" icon={Download} onClick={()=>window.location.href="/api/reports/export?type=headcount"}>Export</Btn><Btn size="sm" icon={Plus} onClick={()=>openModal("add-employee")}>Add Employee</Btn></>}/>
       <div className="flex items-center gap-3 mb-5 flex-wrap">
         <div className="relative flex-1 min-w-48">
           <Search size={14} className={`absolute left-3 top-1/2 -translate-y-1/2 ${c("text-slate-500","text-slate-400")}`}/>
@@ -725,12 +607,19 @@ function EmployeesPage() {
 
 function DepartmentsPage() {
   const { c } = useTheme();
-  const { openModal } = useModal();
+  const { openModal, activeModal } = useModal();
+  const [departments, setDepartments] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (activeModal === "add-department") return;
+    fetch("/api/departments").then(r => r.json()).then(d => setDepartments(d.departments ?? []));
+  }, [activeModal]);
+
   return (
     <div>
       <PageHeader title="Departments" subtitle="Manage organization structures and budgets" actions={<Btn size="sm" icon={Plus} onClick={()=>openModal("add-department")}>New Department</Btn>}/>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {departments.map(dept=>(
+        {departments.map((dept: any)=>(
           <Card key={dept.id} className="p-5 cursor-pointer transition-all hover:-translate-y-0.5">
             <div className="flex items-center gap-3 mb-4">
               <div className={`w-10 h-10 rounded-xl ${dept.color} flex items-center justify-center`}><Building2 size={18} className="text-white"/></div>
@@ -754,28 +643,26 @@ function DepartmentsPage() {
 
 // ─── TEAMS ────────────────────────────────────────────────────────────────────
 
-const teamsData = [
-  { id:1, name:"Platform Core", dept:"Engineering", lead:"Sarah Chen", leadAvatar:"SC", leadColor:"bg-indigo-500", members:[{i:"JW",c:"bg-cyan-500"},{i:"NK",c:"bg-sky-500"},{i:"OH",c:"bg-fuchsia-500"},{i:"TN",c:"bg-teal-500"}], size:8, projects:4, velocity:94 },
-  { id:2, name:"Product Growth", dept:"Product", lead:"Marcus Johnson", leadAvatar:"MJ", leadColor:"bg-emerald-500", members:[{i:"PS",c:"bg-violet-500"},{i:"DK",c:"bg-amber-500"}], size:5, projects:3, velocity:88 },
-  { id:3, name:"Design Systems", dept:"Design", lead:"Priya Sharma", leadAvatar:"PS", leadColor:"bg-violet-500", members:[{i:"AP",c:"bg-rose-500"}], size:4, projects:2, velocity:76 },
-  { id:4, name:"Data Intelligence", dept:"Analytics", lead:"David Kim", leadAvatar:"DK", leadColor:"bg-amber-500", members:[{i:"GL",c:"bg-orange-500"}], size:6, projects:2, velocity:82 },
-  { id:5, name:"Growth Marketing", dept:"Marketing", lead:"Aisha Patel", leadAvatar:"AP", leadColor:"bg-rose-500", members:[{i:"RO",c:"bg-lime-600"}], size:7, projects:5, velocity:71 },
-  { id:6, name:"Revenue Sales", dept:"Sales", lead:"Ryan O'Brien", leadAvatar:"RO", leadColor:"bg-lime-600", members:[{i:"ER",c:"bg-pink-500"}], size:12, projects:3, velocity:89 },
-];
-
 function TeamsPage() {
   const { c } = useTheme();
-  const { openModal } = useModal();
+  const { openModal, activeModal } = useModal();
+  const [teamsData, setTeamsData] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (activeModal === "create-team") return;
+    fetch("/api/teams").then(r => r.json()).then(d => setTeamsData(d.teams ?? []));
+  }, [activeModal]);
+
   return (
     <div>
       <PageHeader title="Teams" subtitle={`${teamsData.length} active teams`} actions={<Btn size="sm" icon={Plus} onClick={()=>openModal("create-team")}>Create Team</Btn>}/>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {teamsData.map(team=>(
+        {teamsData.map((team: any)=>(
           <Card key={team.id} className="p-5 cursor-pointer transition-all hover:-translate-y-0.5">
             <div className="flex items-start justify-between mb-4"><div><h3 className={`font-semibold text-sm ${c("text-white","text-slate-900")}`}>{team.name}</h3><p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{team.dept}</p></div><Badge variant="info">{team.projects} projects</Badge></div>
             <div className="flex items-center gap-2 mb-4"><Avatar initials={team.leadAvatar} color={team.leadColor} size="sm"/><div><p className={`text-xs font-medium ${c("text-slate-300","text-slate-700")}`}>{team.lead}</p><p className={`text-[10px] ${c("text-slate-600","text-slate-400")}`}>Team Lead</p></div></div>
             <div className="flex items-center gap-1 mb-4">
-              {team.members.slice(0,4).map((m,i)=><div key={i} className={`w-7 h-7 rounded-full ${m.c} flex items-center justify-center text-[10px] font-bold text-white border-2 ${c("border-slate-800","border-white")} -ml-1 first:ml-0`}>{m.i}</div>)}
+              {team.members.slice(0,4).map((m: any,i: number)=><div key={i} className={`w-7 h-7 rounded-full ${m.c} flex items-center justify-center text-[10px] font-bold text-white border-2 ${c("border-slate-800","border-white")} -ml-1 first:ml-0`}>{m.i}</div>)}
               {team.size>5 && <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold border-2 -ml-1 ${c("bg-slate-700 text-slate-400 border-slate-800","bg-slate-100 text-slate-500 border-white")}`}>+{team.size-5}</div>}
               <span className={`ml-2 text-xs ${c("text-slate-500","text-slate-400")}`}>{team.size} members</span>
             </div>
@@ -791,9 +678,16 @@ function TeamsPage() {
 
 function ProjectsPage() {
   const { c } = useTheme();
-  const { openModal } = useModal();
+  const { openModal, activeModal } = useModal();
   const [view, setView] = useState<"kanban"|"list">("kanban");
+  const [projects, setProjects] = useState<any[]>([]);
   const statuses = ["planning","in-progress","review","completed"];
+
+  useEffect(() => {
+    if (activeModal === "create-project") return;
+    fetch("/api/projects").then(r => r.json()).then(d => setProjects(d.projects ?? []));
+  }, [activeModal]);
+
   return (
     <div>
       <PageHeader title="Projects" subtitle={`${projects.length} total projects`}
@@ -846,33 +740,88 @@ function ProjectsPage() {
 
 // ─── TASKS ────────────────────────────────────────────────────────────────────
 
+function canDragTask(task: any, authUser: AuthUser | null) {
+  return authUser?.id === task.assigneeId || authUser?.id === task.assignedById || authUser?.role === "super-admin";
+}
+
+function DraggableTaskCard({ task, canDrag, onClick, children }: { task: any; canDrag: boolean; onClick: () => void; children: React.ReactNode }) {
+  const [{ isDragging }, dragRef] = useDrag(() => ({
+    type: TASK_DRAG_TYPE,
+    item: { id: task.id },
+    canDrag,
+    collect: (monitor) => ({ isDragging: monitor.isDragging() }),
+  }), [task.id, canDrag]);
+  return <div ref={dragRef as any} onClick={onClick} style={{ opacity: isDragging ? 0.4 : 1 }} className={canDrag ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"}>{children}</div>;
+}
+
+function TaskDropColumn({ status, onDropTask, children }: { status: string; onDropTask: (taskId: number, status: string) => void; children: React.ReactNode }) {
+  const [{ isOver, canDrop }, dropRef] = useDrop(() => ({
+    accept: TASK_DRAG_TYPE,
+    drop: (item: { id: number }) => onDropTask(item.id, status),
+    collect: (monitor) => ({ isOver: monitor.isOver(), canDrop: monitor.canDrop() }),
+  }), [status]);
+  return <div ref={dropRef as any} className={`space-y-3 rounded-xl transition-colors ${isOver && canDrop ? "bg-indigo-500/10 ring-2 ring-indigo-500/40" : ""}`}>{children}</div>;
+}
+
 function TasksPage() {
   const { c } = useTheme();
-  const { openModal } = useModal();
+  const { authUser } = useAuth();
+  const { openModal, activeModal } = useModal();
   const [view, setView] = useState<"kanban"|"list">("kanban");
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [dropError, setDropError] = useState("");
   const columns = [{id:"todo",label:"To Do",border:c("border-slate-600","border-slate-300")},{id:"in-progress",label:"In Progress",border:"border-indigo-500"},{id:"review",label:"In Review",border:"border-amber-500"},{id:"done",label:"Done",border:"border-emerald-500"}];
+
+  const load = () => fetch("/api/tasks").then(r => r.json()).then(d => setTasks(d.tasks ?? []));
+  useEffect(() => {
+    if (activeModal === "create-task" || activeModal === "task-detail") return;
+    load();
+  }, [activeModal]);
+
+  const openTask = (id: number) => openModal("task-detail", { taskId: id });
+
+  const dropTask = async (taskId: number, status: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task || task.status === status) return;
+    setDropError("");
+    const prev = tasks;
+    setTasks(p => p.map(t => t.id === taskId ? { ...t, status } : t));
+    const res = await fetch(`/api/tasks/${taskId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+    if (!res.ok) {
+      setTasks(prev);
+      const d = await res.json().catch(() => ({}));
+      setDropError(d.error || "Could not update task status.");
+    }
+  };
+
   return (
     <div>
       <PageHeader title="Tasks" subtitle={`${tasks.length} total tasks`}
         actions={<><div className="flex gap-1"><button onClick={()=>setView("kanban")} className={`w-8 h-8 rounded-lg flex items-center justify-center ${view==="kanban"?"bg-indigo-600 text-white":c("bg-slate-800/60 text-slate-500","bg-white border border-slate-200 text-slate-500")}`}><GripVertical size={15}/></button><button onClick={()=>setView("list")} className={`w-8 h-8 rounded-lg flex items-center justify-center ${view==="list"?"bg-indigo-600 text-white":c("bg-slate-800/60 text-slate-500","bg-white border border-slate-200 text-slate-500")}`}><List size={15}/></button></div><Btn size="sm" icon={Plus} onClick={()=>openModal("create-task")}>New Task</Btn></>}/>
+      {dropError && <p className="text-xs text-red-400 mb-3">{dropError}</p>}
       {view==="kanban"?(
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           {columns.map(col=>{
             const colTasks=tasks.filter(t=>t.status===col.id);
             return (
-              <div key={col.id} className="space-y-3">
-                <div className="flex items-center gap-2 px-1"><div className={`w-3 h-3 rounded-sm border-2 ${col.border}`}/><span className={`text-sm font-medium ${c("text-slate-300","text-slate-700")}`}>{col.label}</span><span className={`text-xs px-1.5 py-0.5 rounded ${c("text-slate-600 bg-slate-800","text-slate-500 bg-slate-100")}`}>{colTasks.length}</span></div>
-                {colTasks.map(task=>(
-                  <Card key={task.id} className="p-3.5 cursor-pointer transition-all hover:-translate-y-0.5">
-                    <div className="flex items-start justify-between gap-2 mb-2"><p className={`text-xs font-medium leading-relaxed ${c("text-slate-200","text-slate-800")}`}>{task.title}</p><PriorityBadge priority={task.priority}/></div>
-                    <p className={`text-[10px] mb-3 ${c("text-slate-500","text-slate-400")}`}>{task.project}</p>
-                    <div className="flex items-center gap-1 mb-3 flex-wrap">{task.tags.map(tag=><span key={tag} className={`text-[9px] px-1.5 py-0.5 rounded ${c("bg-slate-700 text-slate-400","bg-slate-100 text-slate-500")}`}>{tag}</span>)}</div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5"><div className={`w-5 h-5 rounded-full ${task.assigneeColor} flex items-center justify-center text-[8px] font-bold text-white`}>{task.assigneeAvatar}</div><span className={`text-[10px] ${c("text-slate-500","text-slate-400")}`}>{task.assignee.split(" ")[0]}</span></div>
-                      <span className={`text-[10px] ${c("text-slate-600","text-slate-400")}`}>{task.due}</span>
-                    </div>
-                  </Card>
-                ))}
+              <div key={col.id}>
+                <div className="flex items-center gap-2 px-1 mb-3"><div className={`w-3 h-3 rounded-sm border-2 ${col.border}`}/><span className={`text-sm font-medium ${c("text-slate-300","text-slate-700")}`}>{col.label}</span><span className={`text-xs px-1.5 py-0.5 rounded ${c("text-slate-600 bg-slate-800","text-slate-500 bg-slate-100")}`}>{colTasks.length}</span></div>
+                <TaskDropColumn status={col.id} onDropTask={dropTask}>
+                  {colTasks.map(task=>(
+                    <DraggableTaskCard key={task.id} task={task} canDrag={canDragTask(task, authUser)} onClick={()=>openTask(task.id)}>
+                      <Card className="p-3.5 transition-all hover:-translate-y-0.5">
+                        <div className="flex items-start justify-between gap-2 mb-2"><p className={`text-xs font-medium leading-relaxed ${c("text-slate-200","text-slate-800")}`}>{task.title}</p><PriorityBadge priority={task.priority}/></div>
+                        <p className={`text-[10px] mb-3 ${c("text-slate-500","text-slate-400")}`}>{task.project}</p>
+                        <div className="flex items-center gap-1 mb-3 flex-wrap">{task.tags.map((tag:string)=><span key={tag} className={`text-[9px] px-1.5 py-0.5 rounded ${c("bg-slate-700 text-slate-400","bg-slate-100 text-slate-500")}`}>{tag}</span>)}</div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5"><div className={`w-5 h-5 rounded-full ${task.assigneeColor} flex items-center justify-center text-[8px] font-bold text-white`}>{task.assigneeAvatar}</div><span className={`text-[10px] ${c("text-slate-500","text-slate-400")}`}>{task.assignee.split(" ")[0]}</span></div>
+                          <span className={`text-[10px] ${c("text-slate-600","text-slate-400")}`}>{task.due}</span>
+                        </div>
+                        {task.assignedBy && <p className={`text-[9px] mt-2 pt-2 border-t ${c("border-white/[0.06] text-slate-600","border-slate-100 text-slate-400")}`}>Assigned by {task.assignedBy}</p>}
+                      </Card>
+                    </DraggableTaskCard>
+                  ))}
+                </TaskDropColumn>
               </div>
             );
           })}
@@ -881,13 +830,14 @@ function TasksPage() {
         <Card>
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Task","Project","Assignee","Priority","Status","Due Date"].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
+              <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Task","Project","Assignee","Assigned By","Priority","Status","Due Date"].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
               <tbody>
                 {tasks.map(t=>(
-                  <tr key={t.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")} cursor-pointer`}>
-                    <td className="px-4 py-3"><p className={`text-sm font-medium ${c("text-slate-200","text-slate-800")}`}>{t.title}</p><div className="flex gap-1 mt-1">{t.tags.map(tag=><span key={tag} className={`text-[10px] px-1.5 py-0.5 rounded ${c("bg-slate-700 text-slate-400","bg-slate-100 text-slate-500")}`}>{tag}</span>)}</div></td>
+                  <tr key={t.id} onClick={()=>openTask(t.id)} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")} cursor-pointer`}>
+                    <td className="px-4 py-3"><p className={`text-sm font-medium ${c("text-slate-200","text-slate-800")}`}>{t.title}</p><div className="flex gap-1 mt-1">{t.tags.map((tag:string)=><span key={tag} className={`text-[10px] px-1.5 py-0.5 rounded ${c("bg-slate-700 text-slate-400","bg-slate-100 text-slate-500")}`}>{tag}</span>)}</div></td>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{t.project}</td>
                     <td className="px-4 py-3"><div className="flex items-center gap-2"><div className={`w-6 h-6 rounded-full ${t.assigneeColor} flex items-center justify-center text-[9px] font-bold text-white`}>{t.assigneeAvatar}</div><span className={`text-xs ${c("text-slate-400","text-slate-500")}`}>{t.assignee}</span></div></td>
+                    <td className={`px-4 py-3 text-xs ${c("text-slate-400","text-slate-500")}`}>{t.assignedBy || "—"}</td>
                     <td className="px-4 py-3"><PriorityBadge priority={t.priority}/></td>
                     <td className="px-4 py-3"><StatusBadge status={t.status}/></td>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{t.due}</td>
@@ -904,26 +854,53 @@ function TasksPage() {
 
 // ─── CALENDAR ─────────────────────────────────────────────────────────────────
 
+const MONTH_NAMES=["January","February","March","April","May","June","July","August","September","October","November","December"];
+
 function CalendarPage() {
   const { c } = useTheme();
-  const { openModal } = useModal();
-  const daysInMonth=30;
-  const events=[{day:3,title:"Platform Sync",type:"meeting"},{day:7,title:"Security Audit",type:"deadline"},{day:10,title:"Perf Reviews",type:"event"},{day:15,title:"Board Meeting",type:"meeting"},{day:18,title:"Orientation",type:"event"},{day:22,title:"Product Launch",type:"deadline"},{day:25,title:"Team Building",type:"event"},{day:28,title:"All-Hands",type:"meeting"}];
+  const { openModal, activeModal } = useModal();
+  const now = new Date();
+  const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth()+1 });
+  const [data, setData] = useState<any>(null);
+
+  useEffect(() => {
+    if (activeModal === "create-event") return;
+    fetch(`/api/calendar?year=${cursor.year}&month=${cursor.month}`).then(r => r.json()).then(setData);
+  }, [cursor, activeModal]);
+
+  if (!data) return null;
+  const isCurrentMonth = cursor.year === now.getFullYear() && cursor.month === now.getMonth()+1;
+  const shiftMonth = (delta: number) => setCursor(({ year, month }) => {
+    const d = new Date(year, month-1+delta, 1);
+    return { year: d.getFullYear(), month: d.getMonth()+1 };
+  });
+  const nextHoliday = data.upcoming.find((e:any)=>e.type==="holiday");
+  const awayLabel = (n:number) => n===0?"Today!":n===1?"Tomorrow":`In ${n} days`;
+
   return (
     <div>
       <PageHeader title="Calendar" subtitle="Manage your schedule and events" actions={<Btn size="sm" icon={Plus} onClick={()=>openModal("create-event")}>New Event</Btn>}/>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2 p-5">
-          <div className="flex items-center justify-between mb-5"><h3 className={`font-semibold ${c("text-white","text-slate-900")}`}>June 2026</h3><div className="flex gap-1"><button className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-400 hover:bg-slate-700","text-slate-500 hover:bg-slate-100")}`}><ChevronLeft size={15}/></button><button className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-400 hover:bg-slate-700","text-slate-500 hover:bg-slate-100")}`}><ChevronRight size={15}/></button></div></div>
+          <div className="flex items-center justify-between mb-5"><h3 className={`font-semibold ${c("text-white","text-slate-900")}`}>{MONTH_NAMES[cursor.month-1]} {cursor.year}</h3><div className="flex gap-1"><button onClick={()=>shiftMonth(-1)} className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-400 hover:bg-slate-700","text-slate-500 hover:bg-slate-100")}`}><ChevronLeft size={15}/></button><button onClick={()=>shiftMonth(1)} className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-400 hover:bg-slate-700","text-slate-500 hover:bg-slate-100")}`}><ChevronRight size={15}/></button></div></div>
           <div className="grid grid-cols-7 mb-2">{["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d=><div key={d} className={`text-center text-xs font-medium py-1 ${c("text-slate-500","text-slate-400")}`}>{d}</div>)}</div>
           <div className="grid grid-cols-7 gap-1">
             <div/>
-            {Array.from({length:daysInMonth},(_,i)=>{
-              const day=i+1,dayEvents=events.filter(e=>e.day===day),isToday=day===28;
+            {Array.from({length:data.daysInMonth},(_,i)=>{
+              const day=i+1,dayEvents=data.events.filter((e:any)=>e.day===day),isToday=isCurrentMonth&&day===now.getDate();
+              const holiday = dayEvents.find((e:any)=>e.type==="holiday");
               return (
-                <div key={day} className={`min-h-[60px] rounded-lg p-1 cursor-pointer ${isToday?"bg-indigo-600/20 border border-indigo-500/40":c("hover:bg-slate-700/30","hover:bg-slate-50")}`}>
-                  <span className={`text-xs font-medium ${isToday?"text-indigo-400":c("text-slate-400","text-slate-500")}`}>{day}</span>
-                  {dayEvents.map((ev,ei)=><div key={ei} className={`mt-0.5 px-1 py-0.5 rounded text-[9px] font-medium truncate ${ev.type==="meeting"?"bg-indigo-500/25 text-indigo-500":ev.type==="deadline"?"bg-red-500/25 text-red-500":"bg-emerald-500/25 text-emerald-600"}`}>{ev.title}</div>)}
+                <div key={day} title={holiday?`${holiday.title}${holiday.description?" — "+holiday.description:""}`:undefined} className={`min-h-[60px] rounded-lg p-1 cursor-pointer ${isToday?"bg-indigo-600/20 border border-indigo-500/40":holiday?c("bg-rose-500/10 hover:bg-rose-500/15","bg-rose-50 hover:bg-rose-100"):c("hover:bg-slate-700/30","hover:bg-slate-50")}`}>
+                  {holiday ? (
+                    <span className="relative inline-flex h-5 w-5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-60"/>
+                      <span className="relative inline-flex rounded-full h-5 w-5 items-center justify-center bg-rose-500 text-white text-[10px] font-bold">{day}</span>
+                    </span>
+                  ) : (
+                    <span className={`text-xs font-medium ${isToday?"text-indigo-400":c("text-slate-400","text-slate-500")}`}>{day}</span>
+                  )}
+                  {holiday && <div className="mt-0.5 px-1 py-0.5 rounded text-[9px] font-semibold truncate bg-rose-500/20 text-rose-500 flex items-center gap-0.5"><PartyPopper size={9}/>{holiday.title}</div>}
+                  {dayEvents.filter((e:any)=>e.type!=="holiday").map((ev:any,ei:number)=><div key={ei} className={`mt-0.5 px-1 py-0.5 rounded text-[9px] font-medium truncate ${ev.type==="meeting"?"bg-indigo-500/25 text-indigo-500":ev.type==="deadline"?"bg-red-500/25 text-red-500":"bg-emerald-500/25 text-emerald-600"}`}>{ev.title}</div>)}
                 </div>
               );
             })}
@@ -931,11 +908,25 @@ function CalendarPage() {
         </Card>
         <Card className="p-5">
           <h3 className={`font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Upcoming Events</h3>
+          {nextHoliday && (
+            <div className="mb-4 p-4 rounded-xl border border-rose-500/30 bg-gradient-to-br from-rose-500/15 to-amber-500/10 relative overflow-hidden">
+              <div className="absolute -top-2 -right-2 opacity-20"><PartyPopper size={56} className="text-rose-400"/></div>
+              <div className="flex items-center gap-2 mb-1 relative"><PartyPopper size={15} className="text-rose-500 animate-bounce"/><span className="text-[10px] font-bold uppercase tracking-wider text-rose-500">Next Holiday</span></div>
+              <p className={`text-sm font-bold relative ${c("text-white","text-slate-900")}`}>{nextHoliday.title}</p>
+              {nextHoliday.description && <p className={`text-xs mt-0.5 relative ${c("text-slate-400","text-slate-500")}`}>{nextHoliday.description}</p>}
+              <p className="text-xs font-semibold text-rose-500 mt-1.5 relative">{awayLabel(nextHoliday.daysAway)} · {MONTH_NAMES[nextHoliday.month-1].slice(0,3)} {nextHoliday.day}</p>
+            </div>
+          )}
           <div className="space-y-3">
-            {events.map((ev,i)=>(
-              <div key={i} className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer ${c("bg-slate-700/20 hover:bg-slate-700/30","bg-slate-50 hover:bg-slate-100")}`}>
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${ev.type==="meeting"?"bg-indigo-500/15":ev.type==="deadline"?"bg-red-500/15":"bg-emerald-500/15"}`}>{ev.type==="meeting"?<Video size={14} className="text-indigo-500"/>:ev.type==="deadline"?<AlertCircle size={14} className="text-red-500"/>:<Calendar size={14} className="text-emerald-500"/>}</div>
-                <div><p className={`text-xs font-medium ${c("text-slate-200","text-slate-700")}`}>{ev.title}</p><p className={`text-[10px] mt-0.5 ${c("text-slate-500","text-slate-400")}`}>Jun {ev.day}</p></div>
+            {data.upcoming.length===0 && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No upcoming events.</p>}
+            {data.upcoming.map((ev:any,i:number)=>(
+              <div key={i} className={`flex items-start gap-3 p-3 rounded-lg cursor-pointer ${ev.type==="holiday"?c("bg-rose-500/10 hover:bg-rose-500/15","bg-rose-50 hover:bg-rose-100"):c("bg-slate-700/20 hover:bg-slate-700/30","bg-slate-50 hover:bg-slate-100")}`}>
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${ev.type==="holiday"?"bg-rose-500/15":ev.type==="meeting"?"bg-indigo-500/15":ev.type==="deadline"?"bg-red-500/15":"bg-emerald-500/15"}`}>{ev.type==="holiday"?<PartyPopper size={14} className="text-rose-500"/>:ev.type==="meeting"?<Video size={14} className="text-indigo-500"/>:ev.type==="deadline"?<AlertCircle size={14} className="text-red-500"/>:<Calendar size={14} className="text-emerald-500"/>}</div>
+                <div>
+                  <p className={`text-xs font-medium ${c("text-slate-200","text-slate-700")}`}>{ev.title}</p>
+                  <p className={`text-[10px] mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{MONTH_NAMES[ev.month-1].slice(0,3)} {ev.day}{ev.type==="holiday"?` · ${awayLabel(ev.daysAway)}`:""}</p>
+                  {ev.type==="holiday" && ev.description && <p className={`text-[10px] mt-0.5 italic ${c("text-slate-500","text-slate-400")}`}>{ev.description}</p>}
+                </div>
               </div>
             ))}
           </div>
@@ -949,7 +940,39 @@ function CalendarPage() {
 
 function AttendancePage() {
   const { c } = useTheme();
-  const [punched, setPunched] = useState(true);
+  const { authUser } = useAuth();
+  const [data, setData] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+  const [punchError, setPunchError] = useState("");
+  const isAdmin = authUser?.role === "super-admin";
+
+  const load = () => fetch("/api/attendance").then(r => r.json()).then(setData);
+  useEffect(() => { load(); }, []);
+
+  const punch = async (action: "in" | "out") => {
+    setBusy(true);
+    setPunchError("");
+    try {
+      const res = await fetch("/api/attendance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setPunchError(d.error || "Could not update attendance."); return; }
+      await load();
+    } catch {
+      setPunchError("Could not reach the server. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!data) return null;
+  const punched = data.today.punchedIn;
+  const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  const fmtHours = (h: number) => `${Math.floor(h)}h ${Math.round((h % 1) * 60)}m`;
+
   return (
     <div>
       <PageHeader title="Attendance" subtitle="Track work hours and attendance patterns"/>
@@ -960,22 +983,24 @@ function AttendancePage() {
             <div className={`w-24 h-24 rounded-full flex items-center justify-center border-4 ${punched?"border-emerald-500 bg-emerald-500/10":c("border-slate-600 bg-slate-800","border-slate-300 bg-slate-100")}`}>
               <div className="text-center"><Clock size={24} className={`${punched?"text-emerald-500":c("text-slate-500","text-slate-400")} mx-auto mb-1`}/><p className={`text-xs font-semibold ${c("text-slate-300","text-slate-600")}`}>{punched?"Punched In":"Not In"}</p></div>
             </div>
-            {punched && <p className="text-sm text-emerald-500 font-medium">In since 09:07 AM</p>}
-            <button onClick={()=>setPunched(!punched)} className={`w-full py-2.5 rounded-lg font-semibold text-sm transition-colors ${punched?"bg-red-600 hover:bg-red-500 text-white":"bg-emerald-600 hover:bg-emerald-500 text-white"}`}>{punched?"Punch Out":"Punch In"}</button>
+            {punched && data.today.punchInTime && <p className="text-sm text-emerald-500 font-medium">In since {fmtTime(data.today.punchInTime)}</p>}
+            {!punched && data.today.punchOutTime && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Punched out at {fmtTime(data.today.punchOutTime)} today</p>}
+            <button disabled={busy || (!punched && !!data.today.punchOutTime)} onClick={()=>punch(punched?"out":"in")} className={`w-full py-2.5 rounded-lg font-semibold text-sm transition-colors disabled:opacity-60 ${punched?"bg-red-600 hover:bg-red-500 text-white":"bg-emerald-600 hover:bg-emerald-500 text-white"}`}>{punched?"Punch Out":data.today.punchOutTime?"Done for today":"Punch In"}</button>
+            {punchError && <p className="text-xs text-red-400 text-center">{punchError}</p>}
           </div>
           <div className="mt-4 space-y-2 text-xs">
-            {[["Today's Hours","5h 17m"],["Break Time","30 min"],["Expected Hours","8h 00m"]].map(([l,v])=><div key={l} className="flex justify-between"><span className={c("text-slate-500","text-slate-400")}>{l}</span><span className={`font-semibold ${c("text-slate-300","text-slate-700")}`}>{v}</span></div>)}
+            {[["Today's Hours",fmtHours(data.today.hoursToday)],["Expected Hours","8h 00m"]].map(([l,v])=><div key={l} className="flex justify-between"><span className={c("text-slate-500","text-slate-400")}>{l}</span><span className={`font-semibold ${c("text-slate-300","text-slate-700")}`}>{v}</span></div>)}
           </div>
         </Card>
         <div className="space-y-4">
-          {[{label:"This Month",value:"23/25",sublabel:"working days",color:"text-emerald-500"},{label:"Avg Hours/Day",value:"8.4h",sublabel:"vs 8h target",color:"text-indigo-500"},{label:"Late Arrivals",value:"2",sublabel:"this month",color:"text-amber-500"}].map(s=>(
+          {[{label:"This Month",value:`${data.monthly.presentDays}/${data.monthly.totalRecorded}`,sublabel:"working days",color:"text-emerald-500"},{label:"Avg Hours/Day",value:`${data.monthly.avgHours}h`,sublabel:"vs 8h target",color:"text-indigo-500"},{label:"Late Arrivals",value:String(data.monthly.lateArrivals),sublabel:"this month",color:"text-amber-500"}].map(s=>(
             <Card key={s.label} className="p-4"><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{s.label}</p><p className={`text-xl font-bold mt-0.5 ${s.color}`}>{s.value}</p><p className={`text-xs mt-0.5 ${c("text-slate-600","text-slate-400")}`}>{s.sublabel}</p></Card>
           ))}
         </div>
         <Card className="p-5">
           <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Monthly Heatmap</h3>
           <div className="grid grid-cols-7 gap-1">
-            {attendanceData.map((d,i)=><div key={i} className={`w-full aspect-square rounded-sm cursor-pointer hover:opacity-70 ${!d.present?"bg-red-500/40":d.late?"bg-amber-500/60":"bg-emerald-500/60"}`} title={`Day ${d.day}`}/>)}
+            {data.heatmap.map((d: any,i: number)=><div key={i} className={`w-full aspect-square rounded-sm cursor-pointer hover:opacity-70 ${!d.present?"bg-red-500/40":d.late?"bg-amber-500/60":"bg-emerald-500/60"}`} title={`Day ${d.day}`}/>)}
           </div>
           <div className={`flex items-center gap-3 mt-3 text-[10px] ${c("text-slate-500","text-slate-400")}`}>
             <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/60"/>Present</div>
@@ -984,26 +1009,46 @@ function AttendancePage() {
           </div>
         </Card>
       </div>
-      <Card>
-        <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")} flex items-center justify-between`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Team Attendance — June 2026</h3><Btn variant="secondary" size="sm" icon={Download}>Export</Btn></div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Employee","Dept","Present","Absent","Late","Rate"].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
-            <tbody>
-              {employees.slice(0,8).map(e=>{const p=Math.round(e.attendance/100*25);return(
-                <tr key={e.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
-                  <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{e.name}</span></div></td>
-                  <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{e.dept}</td>
-                  <td className="px-4 py-3 text-sm text-emerald-500 font-medium">{p}</td>
-                  <td className="px-4 py-3 text-sm text-red-500">{25-p}</td>
-                  <td className="px-4 py-3 text-sm text-amber-500">{Math.round(Math.random()*3)}</td>
-                  <td className="px-4 py-3"><div className="flex items-center gap-2"><ProgressBar value={e.attendance} color={e.attendance>=95?"bg-emerald-500":"bg-amber-500"}/><span className={`text-xs w-10 ${c("text-slate-400","text-slate-500")}`}>{e.attendance}%</span></div></td>
-                </tr>
-              );})}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      {isAdmin && (
+        <Card className="mb-6">
+          <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Today — All Employees</h3></div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Employee","Dept","Punch In","Punch Out","Status"].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
+              <tbody>
+                {data.todayAll.map((e: any)=>(
+                  <tr key={e.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
+                    <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{e.name}</span></div></td>
+                    <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{e.dept}</td>
+                    <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{e.punchInTime?fmtTime(e.punchInTime):"—"}</td>
+                    <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{e.punchOutTime?fmtTime(e.punchOutTime):"—"}</td>
+                    <td className="px-4 py-3">{e.punchedIn?<Badge variant="success">Punched In</Badge>:e.punchOutTime?<Badge variant="default">Done</Badge>:<Badge variant="warning">Not In</Badge>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+      {isAdmin && (
+        <Card>
+          <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")} flex items-center justify-between`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Team Attendance (last 30 days)</h3><Btn variant="secondary" size="sm" icon={Download} onClick={()=>window.location.href="/api/reports/export?type=attendance"}>Export</Btn></div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Employee","Dept","Rate"].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
+              <tbody>
+                {data.team.map((e: any)=>(
+                  <tr key={e.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
+                    <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{e.name}</span></div></td>
+                    <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{e.dept}</td>
+                    <td className="px-4 py-3"><div className="flex items-center gap-2"><ProgressBar value={e.attendance} color={e.attendance>=95?"bg-emerald-500":"bg-amber-500"}/><span className={`text-xs w-10 ${c("text-slate-400","text-slate-500")}`}>{e.attendance}%</span></div></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
@@ -1012,9 +1057,39 @@ function AttendancePage() {
 
 function LeavePage() {
   const { c } = useTheme();
-  const { openModal } = useModal();
-  const leaveTypes=[{type:"Annual Leave",total:24,used:8,remaining:16,color:"bg-indigo-500"},{type:"Sick Leave",total:12,used:2,remaining:10,color:"bg-red-500"},{type:"Casual Leave",total:6,used:3,remaining:3,color:"bg-amber-500"},{type:"Maternity/Paternity",total:90,used:0,remaining:90,color:"bg-pink-500"}];
-  const history=[{dates:"Jun 2–5, 2026",type:"Annual Leave",days:4,reason:"Family vacation",status:"approved"},{dates:"May 14, 2026",type:"Sick Leave",days:1,reason:"Unwell",status:"approved"},{dates:"Apr 18–19, 2026",type:"Annual Leave",days:2,reason:"Personal work",status:"approved"}];
+  const { authUser } = useAuth();
+  const { openModal, activeModal } = useModal();
+  const [leaveTypes, setLeaveTypes] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
+  const [pending, setPending] = useState<any[]>([]);
+  const [reviewingId, setReviewingId] = useState<number | null>(null);
+  const canApprove = authUser?.role === "super-admin";
+
+  const loadPending = () => {
+    if (!canApprove) return;
+    fetch("/api/leave?scope=pending").then(r => r.json()).then(d => setPending(d.pending ?? []));
+  };
+
+  useEffect(() => {
+    if (activeModal === "apply-leave") return;
+    fetch("/api/leave").then(r => r.json()).then(d => { setLeaveTypes(d.balances ?? []); setHistory(d.history ?? []); });
+    loadPending();
+  }, [activeModal]);
+
+  const review = async (id: number, status: "approved" | "rejected") => {
+    setReviewingId(id);
+    try {
+      await fetch(`/api/leave/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      loadPending();
+    } finally {
+      setReviewingId(null);
+    }
+  };
+
   const inp=`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none ${c("bg-slate-800 border-white/[0.08] text-slate-300 focus:border-indigo-500/50","bg-white border-slate-200 text-slate-700 focus:border-indigo-400")}`;
   return (
     <div>
@@ -1029,6 +1104,34 @@ function LeavePage() {
           </Card>
         ))}
       </div>
+      {canApprove && (
+        <Card className="mb-6">
+          <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Pending Approvals</h3></div>
+          {pending.length===0 && <p className={`p-4 text-sm ${c("text-slate-500","text-slate-400")}`}>No leave requests waiting on approval.</p>}
+          {pending.length>0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Employee","Dates","Type","Days","Reason",""].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
+                <tbody>{pending.map(r=>(
+                  <tr key={r.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
+                    <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={r.avatar} color={r.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{r.employee}</span></div></td>
+                    <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{r.dates}</td>
+                    <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{r.type}</td>
+                    <td className={`px-4 py-3 text-sm font-medium ${c("text-slate-300","text-slate-700")}`}>{r.days}</td>
+                    <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{r.reason}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2">
+                        <Btn size="sm" variant="primary" disabled={reviewingId===r.id} onClick={()=>review(r.id,"approved")}>Approve</Btn>
+                        <Btn size="sm" variant="secondary" disabled={reviewingId===r.id} onClick={()=>review(r.id,"rejected")}>Reject</Btn>
+                      </div>
+                    </td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
       <Card>
         <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Leave History</h3></div>
         <div className="overflow-x-auto">
@@ -1055,23 +1158,47 @@ function LeavePage() {
 function PayrollPage() {
   const { c, light } = useTheme();
   const col = light?LIGHT:DARK;
+  const [data, setData] = useState<any>(null);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = () => fetch("/api/payroll").then(r => r.json()).then(setData);
+  useEffect(() => { load(); }, []);
+
+  const runPayroll = async () => {
+    setRunning(true);
+    setError("");
+    try {
+      const res = await fetch("/api/payroll", { method: "POST" });
+      const d = await res.json();
+      if (!res.ok) { setError(d.error || "Could not run payroll."); return; }
+      await load();
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  if (!data) return null;
+  const fmtM = (n: number) => `$${(n/1000000).toFixed(2)}M`;
+
   return (
     <div>
-      <PageHeader title="Payroll" subtitle="Salary, payslips, and compensation" actions={<Btn size="sm" icon={Play}>Run Payroll</Btn>}/>
+      <PageHeader title="Payroll" subtitle="Salary, payslips, and compensation" actions={<Btn size="sm" icon={Play} onClick={runPayroll}>{data.alreadyRun ? `Payroll Run — ${data.month}` : running ? "Running..." : "Run Payroll"}</Btn>}/>
+      {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Total Payroll (Jun)" value="$5.1M" change="+2.9%" icon={DollarSign} iconColor="bg-emerald-600/40" trend="up"/>
-        <StatCard label="Net Disbursed" value="$4.0M" change="+2.8%" icon={TrendingUp} iconColor="bg-indigo-600/40" trend="up"/>
-        <StatCard label="Total Deductions" value="$1.09M" change="+0.9%" icon={ArrowDown} iconColor="bg-amber-600/40" trend="up"/>
-        <StatCard label="Employees Paid" value="1,248" change="100%" icon={Users} iconColor="bg-violet-600/40" trend="up"/>
+        <StatCard label={`Total Payroll (${data.month})`} value={fmtM(data.summary.totalGross)} icon={DollarSign} iconColor="bg-emerald-600/40" trend="up"/>
+        <StatCard label="Net Disbursed" value={fmtM(data.summary.totalNet)} icon={TrendingUp} iconColor="bg-indigo-600/40" trend="up"/>
+        <StatCard label="Total Deductions" value={fmtM(data.summary.totalDeductions)} icon={ArrowDown} iconColor="bg-amber-600/40" trend="up"/>
+        <StatCard label="Employees Paid" value={String(data.summary.employeesPaid)} icon={Users} iconColor="bg-violet-600/40" trend="up"/>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
         <Card className="p-5">
-          <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Payroll Trend — 2026</h3>
+          <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Payroll Trend — Last 6 Months</h3>
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={payrollData}>
+            <BarChart data={data.trend}>
               <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/>
               <XAxis dataKey="month" tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false}/>
-              <YAxis tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false} tickFormatter={v=>`$${(v/1000000).toFixed(1)}M`}/>
+              <YAxis tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false} tickFormatter={v=>`$${(v/1000).toFixed(0)}K`}/>
               <Tooltip content={(p:any)=><ChartTip {...p} light={light}/>}/>
               <Bar key="pay-gross" dataKey="gross" name="Gross" fill="#4F46E5" radius={[4,4,0,0]}/>
               <Bar key="pay-net" dataKey="net" name="Net" fill="#22C55E" radius={[4,4,0,0]}/>
@@ -1081,34 +1208,34 @@ function PayrollPage() {
         <Card className="p-5">
           <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Salary by Department</h3>
           <div className="space-y-3">
-            {departments.slice(0,6).map(d=>(
-              <div key={d.id} className="flex items-center gap-3">
-                <div className={`w-2 h-2 rounded-full ${d.color}`}/>
+            {data.salaryByDept.map((d:any)=>(
+              <div key={d.name} className="flex items-center gap-3">
                 <span className={`text-xs w-24 flex-shrink-0 ${c("text-slate-400","text-slate-500")}`}>{d.name}</span>
-                <div className="flex-1"><ProgressBar value={(d.employees/342)*100} color={d.color}/></div>
-                <span className={`text-xs w-16 text-right ${c("text-slate-300","text-slate-700")}`}>${(d.employees*105/1000).toFixed(0)}K/mo</span>
+                <div className="flex-1"><ProgressBar value={Math.min(100,(d.monthly/Math.max(1,...data.salaryByDept.map((x:any)=>x.monthly)))*100)}/></div>
+                <span className={`text-xs w-16 text-right ${c("text-slate-300","text-slate-700")}`}>${(d.monthly/1000).toFixed(0)}K/mo</span>
               </div>
             ))}
           </div>
         </Card>
       </div>
       <Card>
-        <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")} flex items-center justify-between`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Payslips — June 2026</h3><Btn variant="secondary" size="sm" icon={Download}>Download All</Btn></div>
+        <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")} flex items-center justify-between`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Payslips — {data.month}</h3><Btn variant="secondary" size="sm" icon={Download} onClick={()=>window.location.href="/api/reports/export?type=payroll"}>Download All</Btn></div>
+        {data.payslips.length===0 && <p className={`p-4 text-sm ${c("text-slate-500","text-slate-400")}`}>Payroll hasn't been run for {data.month} yet.</p>}
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Employee","Basic","Allowances","Deductions","Net Pay","Status","Payslip"].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
             <tbody>
-              {employees.slice(0,8).map(e=>{const b=e.salary/12,a=b*0.15,d=b*0.22,n=b+a-d;return(
-                <tr key={e.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
-                  <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{e.name}</span></div></td>
-                  <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>${(b/1000).toFixed(1)}K</td>
-                  <td className="px-4 py-3 text-sm text-emerald-500">+${(a/1000).toFixed(1)}K</td>
-                  <td className="px-4 py-3 text-sm text-red-500">-${(d/1000).toFixed(1)}K</td>
-                  <td className={`px-4 py-3 text-sm font-semibold ${c("text-white","text-slate-900")}`}>${(n/1000).toFixed(1)}K</td>
+              {data.payslips.map((r:any)=>(
+                <tr key={r.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
+                  <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={r.avatar} color={r.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{r.name}</span></div></td>
+                  <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>${(r.basic/1000).toFixed(1)}K</td>
+                  <td className="px-4 py-3 text-sm text-emerald-500">+${(r.allowances/1000).toFixed(1)}K</td>
+                  <td className="px-4 py-3 text-sm text-red-500">-${(r.deductions/1000).toFixed(1)}K</td>
+                  <td className={`px-4 py-3 text-sm font-semibold ${c("text-white","text-slate-900")}`}>${(r.netPay/1000).toFixed(1)}K</td>
                   <td className="px-4 py-3"><Badge variant="success">Processed</Badge></td>
                   <td className="px-4 py-3"><button className="text-xs text-indigo-500 flex items-center gap-1"><Download size={11}/>PDF</button></td>
                 </tr>
-              );})}
+              ))}
             </tbody>
           </table>
         </div>
@@ -1121,25 +1248,36 @@ function PayrollPage() {
 
 function PerformancePage() {
   const { c } = useTheme();
-  const { openModal } = useModal();
+  const { openModal, activeModal } = useModal();
+  const [data, setData] = useState<any>(null);
+
+  useEffect(() => {
+    if (activeModal === "start-review-cycle") return;
+    fetch("/api/performance").then(r => r.json()).then(setData);
+  }, [activeModal]);
+
+  if (!data) return null;
+  const { completion, distribution, reviews, cycle } = data;
+
   return (
     <div>
       <PageHeader title="Performance" subtitle="Reviews, ratings, and development plans" actions={<Btn size="sm" icon={Plus} onClick={()=>openModal("start-review-cycle")}>Start Review Cycle</Btn>}/>
+      {!cycle && <p className={`text-sm mb-4 ${c("text-slate-500","text-slate-400")}`}>No review cycle has been started yet.</p>}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         <Card className="p-5 flex flex-col items-center">
           <h3 className={`text-sm font-semibold mb-4 self-start ${c("text-white","text-slate-900")}`}>Review Completion</h3>
           <div className="relative w-32 h-32">
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart><Pie data={[{value:78},{value:22}]} cx="50%" cy="50%" innerRadius={38} outerRadius={52} startAngle={90} endAngle={-270} dataKey="value"><Cell key="perf-filled" fill="#4F46E5"/><Cell key="perf-empty" fill={c("#334155","#E2E8F0")}/></Pie></PieChart>
+              <PieChart><Pie data={[{value:completion.pct},{value:100-completion.pct}]} cx="50%" cy="50%" innerRadius={38} outerRadius={52} startAngle={90} endAngle={-270} dataKey="value"><Cell key="perf-filled" fill="#4F46E5"/><Cell key="perf-empty" fill={c("#334155","#E2E8F0")}/></Pie></PieChart>
             </ResponsiveContainer>
-            <div className="absolute inset-0 flex items-center justify-center"><span className={`text-2xl font-bold ${c("text-white","text-slate-900")}`}>78%</span></div>
+            <div className="absolute inset-0 flex items-center justify-center"><span className={`text-2xl font-bold ${c("text-white","text-slate-900")}`}>{completion.pct}%</span></div>
           </div>
-          <p className={`text-xs mt-2 ${c("text-slate-500","text-slate-400")}`}>973 of 1,248 reviews completed</p>
+          <p className={`text-xs mt-2 ${c("text-slate-500","text-slate-400")}`}>{completion.completed} of {completion.total} reviews completed</p>
         </Card>
         <Card className="p-5 lg:col-span-2">
           <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Rating Distribution</h3>
           <div className="space-y-3">
-            {[{label:"Outstanding (5.0)",pct:12,color:"bg-emerald-500"},{label:"Exceeds Expectations (4.0–4.9)",pct:34,color:"bg-indigo-500"},{label:"Meets Expectations (3.0–3.9)",pct:41,color:"bg-amber-500"},{label:"Needs Improvement (2.0–2.9)",pct:10,color:"bg-orange-500"},{label:"Unsatisfactory (<2.0)",pct:3,color:"bg-red-500"}].map(r=>(
+            {distribution.map((r:any)=>(
               <div key={r.label} className="flex items-center gap-3">
                 <span className={`text-[11px] w-52 flex-shrink-0 ${c("text-slate-400","text-slate-500")}`}>{r.label}</span>
                 <div className={`flex-1 h-2 ${c("bg-slate-700","bg-slate-200")} rounded-full overflow-hidden`}><div className={`h-full ${r.color} rounded-full`} style={{width:`${r.pct}%`}}/></div>
@@ -1155,19 +1293,15 @@ function PerformancePage() {
           <table className="w-full">
             <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Employee","Reviewer","Period","Score","Status"].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
             <tbody>
-              {employees.slice(0,8).map((e,i)=>{
-                const scores=[4.8,4.2,4.5,3.8,3.5,4.7,4.0,4.3];const score=scores[i];
-                const statuses=["completed","in-progress","completed","completed","todo","in-progress","completed","completed"];
-                return (
-                  <tr key={e.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
-                    <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{e.name}</span></div></td>
-                    <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>Elena Rodriguez</td>
-                    <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>Q2 2026</td>
-                    <td className="px-4 py-3"><div className="flex items-center gap-1"><Star size={12} className={score>=4?"text-amber-500 fill-amber-500":c("text-slate-600","text-slate-300")}/><span className={`text-sm font-semibold ${score>=4.5?"text-emerald-500":score>=3.5?"text-amber-500":"text-red-500"}`}>{score.toFixed(1)}</span></div></td>
-                    <td className="px-4 py-3"><StatusBadge status={statuses[i]}/></td>
+              {reviews.map((r:any)=>(
+                  <tr key={r.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
+                    <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={r.avatar} color={r.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{r.name}</span></div></td>
+                    <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{r.reviewer}</td>
+                    <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{r.period}</td>
+                    <td className="px-4 py-3">{r.score!=null?<div className="flex items-center gap-1"><Star size={12} className={r.score>=4?"text-amber-500 fill-amber-500":c("text-slate-600","text-slate-300")}/><span className={`text-sm font-semibold ${r.score>=4.5?"text-emerald-500":r.score>=3.5?"text-amber-500":"text-red-500"}`}>{r.score.toFixed(1)}</span></div>:<span className={`text-xs ${c("text-slate-600","text-slate-400")}`}>—</span>}</td>
+                    <td className="px-4 py-3"><StatusBadge status={r.status}/></td>
                   </tr>
-                );
-              })}
+              ))}
             </tbody>
           </table>
         </div>
@@ -1179,12 +1313,15 @@ function PerformancePage() {
 // ─── KPI ──────────────────────────────────────────────────────────────────────
 
 function KPIPage() {
-  const { c, light } = useTheme();
-  const col=light?LIGHT:DARK;
-  const kpis=[{name:"Revenue Target",dept:"Sales",current:4.2,target:5.0,unit:"M",pct:84,trend:"up"},{name:"Customer Satisfaction",dept:"Product",current:4.6,target:5.0,unit:"/5",pct:92,trend:"up"},{name:"Deployment Frequency",dept:"Engineering",current:18,target:20,unit:"/mo",pct:90,trend:"up"},{name:"Employee NPS",dept:"HR",current:62,target:70,unit:"",pct:89,trend:"up"},{name:"Lead Conversion",dept:"Marketing",current:3.8,target:5.0,unit:"%",pct:76,trend:"down"},{name:"Bug Resolution Time",dept:"Engineering",current:18,target:12,unit:"hrs",pct:67,trend:"down"}];
+  const { c } = useTheme();
+  const [kpis, setKpis] = useState<any[]>([]);
+
+  useEffect(() => { fetch("/api/kpi").then(r => r.json()).then(d => setKpis(d.kpis ?? [])); }, []);
+
   return (
     <div>
       <PageHeader title="KPI Dashboard" subtitle="Key performance indicators across all departments"/>
+      {kpis.length===0 && <p className={`text-sm ${c("text-slate-500","text-slate-400")}`}>No KPIs have been defined yet.</p>}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         {kpis.map(kpi=>(
           <Card key={kpi.name} className="p-5">
@@ -1195,22 +1332,6 @@ function KPIPage() {
           </Card>
         ))}
       </div>
-      <Card className="p-5">
-        <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Department KPI Trends — Quarterly</h3>
-        <ResponsiveContainer width="100%" height={220}>
-          <LineChart data={kpiLineData}>
-            <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/>
-            <XAxis dataKey="month" tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false}/>
-            <YAxis tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false} domain={[60,100]}/>
-            <Tooltip content={(p:any)=><ChartTip {...p} light={light}/>}/>
-            <Legend wrapperStyle={{ fontSize:11, color:col.tickColor }}/>
-            <Line key="kpi-eng" type="monotone" dataKey="engineering" name="Engineering" stroke="#4F46E5" strokeWidth={2} dot={false}/>
-            <Line key="kpi-prod" type="monotone" dataKey="product" name="Product" stroke="#22C55E" strokeWidth={2} dot={false}/>
-            <Line key="kpi-des" type="monotone" dataKey="design" name="Design" stroke="#8B5CF6" strokeWidth={2} dot={false}/>
-            <Line key="kpi-sales" type="monotone" dataKey="sales" name="Sales" stroke="#F59E0B" strokeWidth={2} dot={false}/>
-          </LineChart>
-        </ResponsiveContainer>
-      </Card>
     </div>
   );
 }
@@ -1219,27 +1340,35 @@ function KPIPage() {
 
 function OKRPage() {
   const { c } = useTheme();
-  const objectives=[
-    {id:1,title:"Scale platform to 10M users",owner:"Marcus Johnson",progress:62,krs:[{title:"Achieve 99.9% uptime SLA",progress:94,status:"on-track"},{title:"Reduce page load time to <1.5s",progress:78,status:"on-track"},{title:"Launch CDN in 5 new regions",progress:40,status:"at-risk"}]},
-    {id:2,title:"Increase ARR by 40%",owner:"Ryan O'Brien",progress:48,krs:[{title:"Close 50 enterprise accounts",progress:62,status:"on-track"},{title:"Expand APAC market presence",progress:30,status:"at-risk"}]},
-    {id:3,title:"Build world-class engineering culture",owner:"Elena Rodriguez",progress:71,krs:[{title:"Achieve eNPS score of 70+",progress:89,status:"on-track"},{title:"Hire 40 engineers in H2",progress:58,status:"on-track"},{title:"Launch internal learning platform",progress:45,status:"at-risk"}]},
-  ];
+  const { openModal, activeModal } = useModal();
+  const [data, setData] = useState<any>(null);
+  const [quarter, setQuarter] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeModal === "add-objective") return;
+    fetch("/api/okr").then(r => r.json()).then(d => { setData(d); setQuarter(q => q ?? d.quarter); });
+  }, [activeModal]);
+
+  if (!data) return null;
+  const objectives = data.objectives.filter((o:any) => !quarter || o.quarter.startsWith(quarter));
+
   return (
     <div>
-      <PageHeader title="OKR Tracker" subtitle="Objectives and Key Results — Q3 2026"
-        actions={<><div className="flex gap-1">{["Q1","Q2","Q3","Q4"].map(q=><button key={q} className={`px-3 py-1.5 text-xs rounded-lg ${q==="Q3"?"bg-indigo-600 text-white":c("bg-slate-800/60 text-slate-500","bg-white border border-slate-200 text-slate-500")}`}>{q} 2026</button>)}</div><Btn size="sm" icon={Plus}>Add Objective</Btn></>}/>
+      <PageHeader title="OKR Tracker" subtitle={`Objectives and Key Results — ${data.quarter} ${new Date().getFullYear()}`}
+        actions={<><div className="flex gap-1">{["Q1","Q2","Q3","Q4"].map(q=><button key={q} onClick={()=>setQuarter(q)} className={`px-3 py-1.5 text-xs rounded-lg ${quarter===q?"bg-indigo-600 text-white":c("bg-slate-800/60 text-slate-500","bg-white border border-slate-200 text-slate-500")}`}>{q}</button>)}</div><Btn size="sm" icon={Plus} onClick={()=>openModal("add-objective")}>Add Objective</Btn></>}/>
+      {objectives.length===0 && <p className={`text-sm ${c("text-slate-500","text-slate-400")}`}>No objectives for this quarter yet.</p>}
       <div className="space-y-4">
-        {objectives.map(obj=>(
+        {objectives.map((obj:any)=>(
           <Card key={obj.id} className="overflow-hidden">
             <div className={`p-5 border-b ${c("border-white/[0.06]","border-slate-200")}`}>
               <div className="flex items-start justify-between gap-4 mb-3">
-                <div className="flex items-start gap-3"><div className="w-8 h-8 rounded-lg bg-indigo-600/20 flex items-center justify-center flex-shrink-0 mt-0.5"><Target size={15} className="text-indigo-500"/></div><div><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>{obj.title}</h3><p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{obj.owner} · Q3 2026</p></div></div>
+                <div className="flex items-start gap-3"><div className="w-8 h-8 rounded-lg bg-indigo-600/20 flex items-center justify-center flex-shrink-0 mt-0.5"><Target size={15} className="text-indigo-500"/></div><div><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>{obj.title}</h3><p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{obj.owner} · {obj.quarter}</p></div></div>
                 <span className={`text-xl font-bold flex-shrink-0 ${c("text-white","text-slate-900")}`}>{obj.progress}%</span>
               </div>
               <ProgressBar value={obj.progress} color={obj.progress>=70?"bg-emerald-500":obj.progress>=50?"bg-indigo-500":"bg-amber-500"}/>
             </div>
             <div className={`divide-y ${c("divide-white/[0.04]","divide-slate-100")}`}>
-              {obj.krs.map((kr,i)=>(
+              {obj.krs.map((kr:any,i:number)=>(
                 <div key={i} className={`flex items-center gap-4 px-5 py-3 ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
                   <div className={`w-4 h-4 rounded border flex-shrink-0 ${c("border-slate-600","border-slate-300")}`}/>
                   <p className={`flex-1 text-sm ${c("text-slate-300","text-slate-700")}`}>{kr.title}</p>
@@ -1260,45 +1389,25 @@ function OKRPage() {
 function AnalyticsPage() {
   const { c, light } = useTheme();
   const col=light?LIGHT:DARK;
+  const [data, setData] = useState<any>(null);
+  useEffect(() => { fetch("/api/analytics").then(r => r.json()).then(setData); }, []);
+  if (!data) return null;
   return (
     <div>
       <PageHeader title="Analytics" subtitle="Deep insights across your entire organization"/>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Monthly Active Users" value="1,124" change="+8.2%" icon={Users} iconColor="bg-indigo-600/40" trend="up"/>
-        <StatCard label="Avg Session Duration" value="42 min" change="+3.1%" icon={Clock} iconColor="bg-emerald-600/40" trend="up"/>
-        <StatCard label="Task Completion Rate" value="84.6%" change="+1.8%" icon={CheckCircle2} iconColor="bg-violet-600/40" trend="up"/>
-        <StatCard label="Response Time" value="1.2h" change="-18%" icon={Zap} iconColor="bg-amber-600/40" trend="down"/>
-      </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-        <Card className="p-5">
-          <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Headcount Growth</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={areaChartData}>
-              <defs><linearGradient id="anaHcG" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#4F46E5" stopOpacity={0.35}/><stop offset="95%" stopColor="#4F46E5" stopOpacity={0}/></linearGradient></defs>
-              <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/><XAxis dataKey="month" tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false}/><YAxis tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false} domain={[1150,1280]}/>
-              <Tooltip content={(p:any)=><ChartTip {...p} light={light}/>}/>
-              <Area key="ana-headcount" type="monotone" dataKey="employees" name="Headcount" stroke="#4F46E5" strokeWidth={2} fill="url(#anaHcG)"/>
-            </AreaChart>
-          </ResponsiveContainer>
-        </Card>
-        <Card className="p-5">
-          <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Project Velocity</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={[{w:"W1",v:34},{w:"W2",v:42},{w:"W3",v:38},{w:"W4",v:51},{w:"W5",v:47},{w:"W6",v:55}]}>
-              <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/><XAxis dataKey="w" tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false}/><YAxis tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false}/>
-              <Tooltip content={(p:any)=><ChartTip {...p} light={light}/>}/>
-              <Line key="ana-velocity" type="monotone" dataKey="v" name="Story Points" stroke="#22C55E" strokeWidth={2.5} dot={{ fill:"#22C55E", r:3 }}/>
-            </LineChart>
-          </ResponsiveContainer>
-        </Card>
+        <StatCard label="Total Employees" value={String(data.totalEmployees)} icon={Users} iconColor="bg-indigo-600/40" trend="up"/>
+        <StatCard label="Active Employees" value={String(data.activeEmployees)} icon={CheckCircle2} iconColor="bg-emerald-600/40" trend="up"/>
+        <StatCard label="Task Completion Rate" value={`${data.taskCompletionPct}%`} icon={TrendingUp} iconColor="bg-violet-600/40" trend="up"/>
+        <StatCard label="Overdue Tasks" value={String(data.overdueTasks)} icon={AlertCircle} iconColor="bg-amber-600/40" trend={data.overdueTasks>0?"down":"up"}/>
       </div>
       <Card className="p-5">
         <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Department Workforce Distribution</h3>
         <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={departments.map(d=>({ name:d.name, employees:d.employees, projects:d.projects }))}>
+          <BarChart data={data.departmentWorkforce}>
             <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/><XAxis dataKey="name" tick={{ fill:col.tickColor, fontSize:10 }} axisLine={false} tickLine={false}/><YAxis tick={{ fill:col.tickColor, fontSize:11 }} axisLine={false} tickLine={false}/>
             <Tooltip content={(p:any)=><ChartTip {...p} light={light}/>}/>
-            <Bar key="ana-emps" dataKey="employees" name="Employees" fill="#4F46E5" radius={[4,4,0,0]}/><Bar key="ana-projs" dataKey="projects" name="Projects" fill="#22C55E" radius={[4,4,0,0]}/>
+            <Bar key="ana-emps" dataKey="employees" name="Employees" fill="#4F46E5" radius={[4,4,0,0]}/><Bar key="ana-projs" dataKey="projects" name="Active Projects" fill="#22C55E" radius={[4,4,0,0]}/>
           </BarChart>
         </ResponsiveContainer>
       </Card>
@@ -1308,22 +1417,38 @@ function AnalyticsPage() {
 
 // ─── KNOWLEDGE BASE ───────────────────────────────────────────────────────────
 
+const KNOWLEDGE_CATEGORY_ICONS: Record<string, React.ElementType> = {
+  Engineering: Code, "HR Policies": FileText, Product: Target, Onboarding: CheckSquare, Finance: DollarSign, Security: ShieldCheck,
+};
+
 function KnowledgePage() {
   const { c } = useTheme();
+  const { openModal, activeModal } = useModal();
   const [search, setSearch] = useState("");
   const [cat, setCat] = useState("All");
+  const [articles, setArticles] = useState<any[]>([]);
   const categories=["All","Engineering","HR Policies","Product","Onboarding","Finance","Security"];
-  const articles=[{id:1,title:"Engineering Contribution Guidelines",category:"Engineering",author:"James Wilson",updated:"Jun 24",views:342,icon:Code},{id:2,title:"Onboarding Checklist for New Hires",category:"Onboarding",author:"Elena Rodriguez",updated:"Jun 20",views:812,icon:CheckSquare},{id:3,title:"Remote Work & Attendance Policy 2026",category:"HR Policies",author:"Elena Rodriguez",updated:"Jun 15",views:1204,icon:FileText},{id:4,title:"Product Roadmap Q3–Q4 2026",category:"Product",author:"Marcus Johnson",updated:"Jun 12",views:567,icon:Target},{id:5,title:"Security Incident Response Playbook",category:"Security",author:"Omar Hassan",updated:"Jun 8",views:289,icon:ShieldCheck},{id:6,title:"Expense Reimbursement Policy",category:"Finance",author:"Grace Liu",updated:"Jun 5",views:445,icon:DollarSign},{id:7,title:"Code Review Best Practices",category:"Engineering",author:"Sarah Chen",updated:"May 30",views:631,icon:Code},{id:8,title:"Brand Identity & Design System",category:"Product",author:"Priya Sharma",updated:"May 28",views:388,icon:Layers}];
-  const filtered=articles.filter(a=>(cat==="All"||a.category===cat)&&a.title.toLowerCase().includes(search.toLowerCase()));
+
+  useEffect(() => {
+    if (activeModal === "add-article") return;
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    if (cat !== "All") params.set("category", cat);
+    fetch(`/api/knowledge?${params}`).then(r => r.json()).then(d => setArticles(d.articles ?? []));
+  }, [search, cat, activeModal]);
+
   return (
     <div>
-      <PageHeader title="Knowledge Base" subtitle="Documentation, SOPs, and company resources" actions={<Btn size="sm" icon={Plus}>New Article</Btn>}/>
+      <PageHeader title="Knowledge Base" subtitle="Documentation, SOPs, and company resources" actions={<Btn size="sm" icon={Plus} onClick={()=>openModal("add-article")}>New Article</Btn>}/>
       <div className="relative mb-4"><Search size={14} className={`absolute left-3 top-1/2 -translate-y-1/2 ${c("text-slate-500","text-slate-400")}`}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search articles..." className={`w-full border rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none ${c("bg-slate-800/60 border-white/[0.08] text-slate-300 placeholder-slate-600 focus:border-indigo-500/50","bg-white border-slate-200 text-slate-700 placeholder-slate-400 focus:border-indigo-400")}`}/></div>
       <div className="flex gap-2 mb-5 flex-wrap">{categories.map(ca=><button key={ca} onClick={()=>setCat(ca)} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${cat===ca?"bg-indigo-600 text-white":c("bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200","bg-white border border-slate-200 text-slate-500 hover:text-slate-700")}`}>{ca}</button>)}</div>
+      {articles.length===0 && <p className={`text-sm ${c("text-slate-500","text-slate-400")}`}>No articles found.</p>}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        {filtered.map(a=>(
+        {articles.map(a=>{
+          const Icon = KNOWLEDGE_CATEGORY_ICONS[a.category] ?? FileText;
+          return (
           <Card key={a.id} className="p-4 cursor-pointer transition-all hover:-translate-y-0.5 flex items-start gap-3">
-            <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${c("bg-slate-700/50","bg-slate-100")}`}><a.icon size={16} className={c("text-slate-400","text-slate-500")}/></div>
+            <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${c("bg-slate-700/50","bg-slate-100")}`}><Icon size={16} className={c("text-slate-400","text-slate-500")}/></div>
             <div className="flex-1 min-w-0">
               <h4 className={`text-sm font-medium transition-colors ${c("text-white hover:text-indigo-300","text-slate-800 hover:text-indigo-600")}`}>{a.title}</h4>
               <div className={`flex items-center gap-3 mt-1.5 text-xs ${c("text-slate-500","text-slate-400")} flex-wrap`}>
@@ -1331,62 +1456,7 @@ function KnowledgePage() {
               </div>
             </div>
           </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── CHAT ─────────────────────────────────────────────────────────────────────
-
-function ChatPage() {
-  const { c, light } = useTheme();
-  const { authUser } = useAuth();
-  const [activeChannel, setActiveChannel] = useState(chatChannels[0]);
-  const [messages, setMessages] = useState(chatMessages);
-  const [input, setInput] = useState("");
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const send = useCallback(()=>{if(!input.trim())return;setMessages(prev=>[...prev,{id:prev.length+1,user:authUser?.name||"Sanjay Iyer",avatar:authUser?.avatar||"SJ",color:authUser?.avatarColor||"bg-indigo-600",time:"Now",text:input,reactions:[]}]);setInput("");},[input,authUser]);
-  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages]);
-  return (
-    <div className="flex h-[calc(100vh-8rem)] -m-6">
-      <div className="w-56 flex-shrink-0 border-r flex flex-col" style={{ background:"#0B1020", borderColor:"rgba(255,255,255,0.06)" }}>
-        <div className="p-4 border-b border-white/[0.06]"><h3 className="text-xs font-semibold text-slate-300">RIAURA Workspace</h3><p className="text-[10px] text-slate-600 mt-0.5">1,248 members</p></div>
-        <div className="flex-1 overflow-y-auto p-2">
-          <p className="text-[10px] text-slate-600 font-semibold uppercase tracking-wider px-2 py-1.5">Channels</p>
-          {chatChannels.map(ch=><button key={ch.id} onClick={()=>setActiveChannel(ch)} className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-sm transition-colors ${activeChannel.id===ch.id?"bg-indigo-600/20 text-indigo-400":"text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"}`}><span className="flex items-center gap-2"><Hash size={13}/>{ch.name}</span>{ch.unread>0&&<span className="text-[10px] bg-indigo-600 text-white rounded-full px-1.5 py-0.5 font-semibold">{ch.unread}</span>}</button>)}
-          <p className="text-[10px] text-slate-600 font-semibold uppercase tracking-wider px-2 py-1.5 mt-2">Direct Messages</p>
-          {employees.slice(0,5).map(e=><button key={e.id} className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] transition-colors"><div className={`w-5 h-5 rounded-full ${e.avatarColor} flex items-center justify-center text-[8px] font-bold text-white flex-shrink-0`}>{e.avatar}</div><span className="truncate">{e.name.split(" ")[0]}</span><span className="ml-auto w-1.5 h-1.5 rounded-full bg-emerald-500"/></button>)}
-        </div>
-      </div>
-      <div className="flex-1 flex flex-col" style={{ background:light?LIGHT.bg:DARK.bg }}>
-        <div className={`px-5 py-3 border-b flex items-center gap-3 flex-shrink-0 ${c("border-white/[0.06]","border-slate-200")}`} style={{ background:light?LIGHT.topbar:"#131E35" }}>
-          <Hash size={16} className={c("text-slate-500","text-slate-400")}/><h3 className={`font-semibold text-sm ${c("text-white","text-slate-900")}`}>{activeChannel.name}</h3>
-          <span className={`text-xs border-l pl-3 ${c("text-slate-600 border-white/[0.08]","text-slate-400 border-slate-200")}`}>Team discussions</span>
-        </div>
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {messages.map(msg=>(
-            <div key={msg.id} className="flex items-start gap-3">
-              <div className={`w-8 h-8 rounded-full ${msg.color} flex items-center justify-center text-xs font-bold text-white flex-shrink-0 mt-0.5`}>{msg.avatar}</div>
-              <div className="flex-1">
-                <div className="flex items-baseline gap-2 mb-1"><span className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>{msg.user}</span><span className={`text-[11px] ${c("text-slate-600","text-slate-400")}`}>{msg.time}</span></div>
-                <p className={`text-sm leading-relaxed ${c("text-slate-300","text-slate-600")}`}>{msg.text}</p>
-                {msg.reactions.length>0&&<div className="flex items-center gap-1.5 mt-2 flex-wrap">{msg.reactions.map((r,i)=><button key={i} className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border ${c("bg-slate-700/50 border-white/[0.06] text-slate-400","bg-slate-100 border-slate-200 text-slate-600")}`}><span>{r.emoji}</span><span>{r.count}</span></button>)}</div>}
-              </div>
-            </div>
-          ))}
-          <div ref={bottomRef}/>
-        </div>
-        <div className={`p-4 border-t flex-shrink-0 ${c("border-white/[0.06]","border-slate-200")}`}>
-          <div className={`flex items-center gap-2 border rounded-xl px-4 py-2.5 ${c("bg-slate-800/60 border-white/[0.08] focus-within:border-indigo-500/40","bg-white border-slate-200 focus-within:border-indigo-400")}`}>
-            <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder={`Message #${activeChannel.name}`} className={`flex-1 bg-transparent text-sm focus:outline-none ${c("text-slate-300 placeholder-slate-600","text-slate-700 placeholder-slate-400")}`}/>
-            <div className="flex items-center gap-1.5">
-              <button className={c("text-slate-600 hover:text-slate-400","text-slate-400 hover:text-slate-600")}><Paperclip size={15}/></button>
-              <button className={c("text-slate-600 hover:text-slate-400","text-slate-400 hover:text-slate-600")}><Smile size={15}/></button>
-              <button onClick={send} className="w-7 h-7 rounded-lg bg-indigo-600 hover:bg-indigo-500 flex items-center justify-center"><Send size={13} className="text-white"/></button>
-            </div>
-          </div>
-        </div>
+        );})}
       </div>
     </div>
   );
@@ -1394,63 +1464,39 @@ function ChatPage() {
 
 // ─── AI ASSISTANT ─────────────────────────────────────────────────────────────
 
-function AIAssistantPage() {
-  const { c, light } = useTheme();
-  const { authUser } = useAuth();
-  const [messages, setMessages] = useState(aiInitMessages);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const suggested=["Summarize this week's project status","Which employees are at risk of leaving?","Generate Q2 Engineering performance report","Top 5 overdue tasks across all projects"];
-  const replies=["Based on current data: **Platform v3.0** is at 68% — on track for August. **Security Audit** nearly done at 91%. **Mobile Redesign** at 42% may need resource boost.","Engagement analysis indicates **2 employees** show disengagement signs: attendance below 80%, no skills training in 90+ days. Recommend 1:1 sessions.","**Q2 Engineering**: 342 engineers, 87% KPI achievement, 18 deployments/month (+12% QoQ). Top performers: Sarah Chen (4.8/5), James Wilson (4.7/5)."];
-  const send = useCallback(async(text?:string)=>{
-    const msg=text||input;if(!msg.trim())return;
-    setMessages(prev=>[...prev,{role:"user",text:msg}]);setInput("");setLoading(true);
-    await new Promise(r=>setTimeout(r,1100));
-    setMessages(prev=>[...prev,{role:"assistant",text:replies[Math.floor(Math.random()*replies.length)]}]);
-    setLoading(false);
-  },[input]);
-  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[messages,loading]);
-  return (
-    <div className="flex h-[calc(100vh-8rem)] flex-col -m-6">
-      <div className={`px-6 py-4 border-b flex items-center gap-3 flex-shrink-0 ${c("border-white/[0.06]","border-slate-200")}`}>
-        <div className="w-9 h-9 rounded-xl bg-indigo-600/20 flex items-center justify-center"><Sparkles size={18} className="text-indigo-500"/></div>
-        <div><h2 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>RIAURA AI Assistant</h2><p className={`text-[11px] ${c("text-slate-500","text-slate-400")}`}>Enterprise intelligence · Full org data access</p></div>
-        <div className="ml-auto flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-emerald-500"/><span className="text-xs text-emerald-500">Online</span></div>
-      </div>
-      <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-        {messages.map((msg,i)=>(
-          <div key={i} className={`flex ${msg.role==="user"?"justify-end":"justify-start"} items-start gap-3`}>
-            {msg.role==="assistant"&&<div className="w-7 h-7 rounded-lg bg-indigo-600/20 flex items-center justify-center flex-shrink-0 mt-0.5"><Bot size={14} className="text-indigo-500"/></div>}
-            <div className={`max-w-2xl px-4 py-3 rounded-2xl text-sm leading-relaxed ${msg.role==="user"?"bg-indigo-600 text-white rounded-tr-sm":c("bg-slate-800 text-slate-200 border border-white/[0.06] rounded-tl-sm","bg-slate-100 text-slate-700 border border-slate-200 rounded-tl-sm")}`}>{msg.text}</div>
-            {msg.role==="user"&&<div className={`w-7 h-7 rounded-full ${authUser?.avatarColor||"bg-indigo-600"} flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0 mt-0.5`}>{authUser?.avatar||"SJ"}</div>}
-          </div>
-        ))}
-        {loading&&<div className="flex items-start gap-3"><div className="w-7 h-7 rounded-lg bg-indigo-600/20 flex items-center justify-center flex-shrink-0"><Bot size={14} className="text-indigo-500"/></div><div className={`${c("bg-slate-800 border-white/[0.06]","bg-slate-100 border-slate-200")} border rounded-2xl rounded-tl-sm px-4 py-3`}><div className="flex gap-1">{[0,1,2].map(i=><div key={i} className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" style={{animationDelay:`${i*0.15}s`}}/>)}</div></div></div>}
-        <div ref={bottomRef}/>
-      </div>
-      {messages.length<=1&&<div className="px-6 pb-3"><p className={`text-xs mb-2 ${c("text-slate-500","text-slate-400")}`}>Suggested prompts</p><div className="flex flex-wrap gap-2">{suggested.map((p,i)=><button key={i} onClick={()=>send(p)} className={`text-xs border rounded-lg px-3 py-1.5 transition-colors ${c("text-slate-300 bg-slate-800/60 border-white/[0.08] hover:border-indigo-500/40 hover:text-indigo-300","text-slate-600 bg-white border-slate-200 hover:border-indigo-400 hover:text-indigo-600")}`}>{p}</button>)}</div></div>}
-      <div className="px-6 pb-5 flex-shrink-0">
-        <div className={`flex items-center gap-2 border rounded-2xl px-4 py-3 ${c("bg-slate-800/60 border-white/[0.08] focus-within:border-indigo-500/40","bg-white border-slate-200 focus-within:border-indigo-400")}`}>
-          <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&send()} placeholder="Ask anything about your organization..." className={`flex-1 bg-transparent text-sm focus:outline-none ${c("text-slate-300 placeholder-slate-600","text-slate-700 placeholder-slate-400")}`}/>
-          <div className="flex items-center gap-2"><button className={c("text-slate-600 hover:text-slate-400","text-slate-400 hover:text-slate-600")}><Mic size={16}/></button><button onClick={()=>send()} disabled={!input.trim()} className="w-8 h-8 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 flex items-center justify-center"><Send size={14} className="text-white"/></button></div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── REMAINING PAGES ──────────────────────────────────────────────────────────
 
 function MeetingsPage() {
   const { c } = useTheme();
-  const { openModal } = useModal();
-  const meetings=[{title:"Platform v3 Sprint Sync",date:"Today, Jun 28",time:"2:00 PM — 3:00 PM",attendees:["SC","JW","MJ","NK"],status:"upcoming"},{title:"Q2 Board Review",date:"Mon, Jun 30",time:"10:00 AM — 12:00 PM",attendees:["MJ","RO","GL","ER"],status:"upcoming"},{title:"Design System Standup",date:"Daily",time:"9:30 AM — 9:50 AM",attendees:["PS","MJ","DK"],status:"recurring"},{title:"All Hands — July 2026",date:"Mon, Jul 7",time:"11:00 AM — 12:30 PM",attendees:["SC","MJ","PS","DK","AP","JW"],status:"upcoming"}];
+  const { authUser } = useAuth();
+  const { openModal, activeModal } = useModal();
+  const [meetings, setMeetings] = useState<any[]>([]);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
   const ac=["bg-indigo-500","bg-emerald-500","bg-violet-500","bg-amber-500","bg-cyan-500","bg-rose-500"];
+
+  const load = () => fetch("/api/meetings").then(r => r.json()).then(d => setMeetings(d.meetings ?? []));
+  useEffect(() => {
+    if (activeModal === "schedule-meeting") return;
+    load();
+  }, [activeModal]);
+
+  const cancelMeeting = async (id: number) => {
+    setCancellingId(id);
+    try {
+      await fetch(`/api/meetings/${id}`, { method: "DELETE" });
+      await load();
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
   return (
     <div>
       <PageHeader title="Meetings" subtitle="Upcoming meetings and sessions" actions={<Btn size="sm" icon={Plus} onClick={()=>openModal("schedule-meeting")}>Schedule Meeting</Btn>}/>
-      <div className="space-y-3">{meetings.map((m,mi)=>(
+      {meetings.length===0 && <p className={`text-sm ${c("text-slate-500","text-slate-400")}`}>No meetings scheduled yet.</p>}
+      <div className="space-y-3">{meetings.map((m,mi)=>{
+        const canManage = authUser?.id === m.createdById || authUser?.role === "super-admin";
+        return (
         <Card key={mi} className="p-4">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div className="flex items-start gap-3 flex-1">
@@ -1458,60 +1504,105 @@ function MeetingsPage() {
               <div><h4 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>{m.title}</h4><div className={`flex items-center gap-3 mt-1 text-xs ${c("text-slate-500","text-slate-400")}`}><span>{m.date}</span><span>{m.time}</span></div>
               <div className="flex items-center gap-1 mt-2">{m.attendees.slice(0,5).map((a,i)=><div key={i} className={`w-6 h-6 rounded-full ${ac[i%ac.length]} flex items-center justify-center text-[9px] font-bold text-white border-2 ${c("border-slate-800","border-white")} -ml-1 first:ml-0`}>{a}</div>)}</div></div>
             </div>
-            <div className="flex items-center gap-2"><StatusBadge status={m.status}/><Btn variant="secondary" size="sm">Join</Btn></div>
+            <div className="flex items-center gap-2">
+              <StatusBadge status={m.status}/>
+              <Btn variant="secondary" size="sm" disabled={!m.gmeetLink} onClick={()=>window.open(m.gmeetLink, "_blank", "noopener,noreferrer")}>Join</Btn>
+              {canManage && <Btn variant="danger" size="sm" disabled={cancellingId===m.id} onClick={()=>cancelMeeting(m.id)}>Cancel</Btn>}
+            </div>
           </div>
         </Card>
-      ))}</div>
+        );
+      })}</div>
     </div>
   );
 }
 
+const NOTIF_ICONS: Record<string, React.ElementType> = {
+  task: CheckSquare, leave: PlaneTakeoff, project: FolderKanban, payroll: DollarSign, meeting: Video, performance: Award, attendance: Clock,
+};
+const NOTIF_COLORS: Record<string, string> = {
+  task: "bg-indigo-500/15 text-indigo-500", leave: "bg-emerald-500/15 text-emerald-500", project: "bg-amber-500/15 text-amber-500",
+  payroll: "bg-violet-500/15 text-violet-500", meeting: "bg-cyan-500/15 text-cyan-500", performance: "bg-rose-500/15 text-rose-500",
+  attendance: "bg-amber-500/15 text-amber-500",
+};
+
 function NotificationsPage() {
   const { c } = useTheme();
-  const notifs=[{icon:CheckSquare,color:"bg-indigo-500/15 text-indigo-500",title:"Task assigned to you",body:"Sarah Chen assigned \"Implement OAuth2 auth flow\" in Platform v3.0",time:"5 min ago",read:false},{icon:PlaneTakeoff,color:"bg-emerald-500/15 text-emerald-500",title:"Leave request approved",body:"Your leave request for Jun 2–5 has been approved",time:"1 hour ago",read:false},{icon:FolderKanban,color:"bg-amber-500/15 text-amber-500",title:"Project milestone reached",body:"Security Audit 2026 reached 90% completion",time:"2 hours ago",read:false},{icon:DollarSign,color:"bg-violet-500/15 text-violet-500",title:"Payroll processed",body:"June 2026 payroll has been processed",time:"1 day ago",read:true},{icon:Sparkles,color:"bg-pink-500/15 text-pink-500",title:"AI Insight ready",body:"Your weekly organization health report is ready",time:"2 days ago",read:true}];
+  const [notifs, setNotifs] = useState<any[]>([]);
+
+  const load = () => fetch("/api/notifications").then(r => r.json()).then(d => setNotifs(d.notifications ?? []));
+  useEffect(() => { load(); }, []);
+
+  const markAllRead = async () => {
+    await fetch("/api/notifications", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ markAll: true }) });
+    load();
+  };
+
   return (
     <div>
-      <PageHeader title="Notifications" subtitle={`${notifs.filter(n=>!n.read).length} unread`} actions={<Btn variant="ghost" size="sm">Mark all read</Btn>}/>
-      <div className="space-y-2 max-w-2xl">{notifs.map((n,i)=>(
-        <Card key={i} className={`p-4 cursor-pointer ${!n.read?c("border-indigo-500/20","border-indigo-300/40"):""}`}>
+      <PageHeader title="Notifications" subtitle={`${notifs.filter(n=>!n.read).length} unread`} actions={<Btn variant="ghost" size="sm" onClick={markAllRead}>Mark all read</Btn>}/>
+      {notifs.length===0 && <p className={`text-sm ${c("text-slate-500","text-slate-400")}`}>You're all caught up.</p>}
+      <div className="space-y-2 max-w-2xl">{notifs.map((n)=>{
+        const Icon = NOTIF_ICONS[n.icon] ?? CheckSquare;
+        return (
+        <Card key={n.id} className={`p-4 cursor-pointer ${!n.read?c("border-indigo-500/20","border-indigo-300/40"):""}`}>
           <div className="flex items-start gap-3">
-            <div className={`w-9 h-9 rounded-xl ${n.color} flex items-center justify-center flex-shrink-0`}><n.icon size={16}/></div>
+            <div className={`w-9 h-9 rounded-xl ${NOTIF_COLORS[n.icon] ?? "bg-indigo-500/15 text-indigo-500"} flex items-center justify-center flex-shrink-0`}><Icon size={16}/></div>
             <div className="flex-1"><div className="flex items-start justify-between gap-2"><p className={`text-sm font-medium ${n.read?c("text-slate-400","text-slate-500"):c("text-white","text-slate-900")}`}>{n.title}</p><span className={`text-[10px] flex-shrink-0 ${c("text-slate-600","text-slate-400")}`}>{n.time}</span></div><p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-500")}`}>{n.body}</p></div>
             {!n.read&&<div className="w-1.5 h-1.5 rounded-full bg-indigo-500 flex-shrink-0 mt-2"/>}
           </div>
         </Card>
-      ))}</div>
+      );})}</div>
     </div>
   );
 }
 
 function RolesPage() {
   const { c } = useTheme();
-  const roles=[{name:"Super Admin",users:2,permissions:48,color:"bg-red-500"},{name:"HR Manager",users:8,permissions:32,color:"bg-violet-500"},{name:"Project Manager",users:24,permissions:28,color:"bg-indigo-500"},{name:"Team Lead",users:67,permissions:21,color:"bg-amber-500"},{name:"Employee",users:1147,permissions:12,color:"bg-emerald-500"}];
-  const groups=["Employees","Projects","Finance","Analytics","Settings","Audit"];
+  const { authUser } = useAuth();
+  const [data, setData] = useState<any>(null);
+  const [selected, setSelected] = useState<string | null>(null);
+  const isSuperAdmin = authUser?.role === "super-admin";
+
+  const load = () => fetch("/api/roles").then(r => r.json()).then(d => { setData(d); setSelected(s => s ?? d.roles[1]?.role); });
+  useEffect(() => { load(); }, []);
+
+  const toggle = async (permission: string, enabled: boolean) => {
+    if (!selected || !isSuperAdmin) return;
+    await fetch("/api/roles", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: selected, permission, enabled }),
+    });
+    load();
+  };
+
+  if (!data) return null;
+  const selectedRole = data.roles.find((r:any) => r.role === selected);
+  const roleColors: Record<string,string> = { super_admin: "bg-red-500", first_level_manager: "bg-violet-500", second_level_manager: "bg-violet-500", manager: "bg-indigo-500", team_lead: "bg-amber-500", hr_admin: "bg-pink-500", employee: "bg-emerald-500" };
+
   return (
     <div>
-      <PageHeader title="Roles & Permissions" subtitle="Define access control" actions={<Btn size="sm" icon={Plus}>Create Role</Btn>}/>
+      <PageHeader title="Roles & Permissions" subtitle="Define access control"/>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="space-y-3">{roles.map(role=>(
-          <Card key={role.name} className="p-4 cursor-pointer hover:-translate-y-0.5 transition-all">
-            <div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-lg ${role.color}/20 flex items-center justify-center`}><ShieldCheck size={15} className={role.color.replace("bg-","text-")}/></div><div><p className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>{role.name}</p><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{role.users} users · {role.permissions} permissions</p></div></div>
+        <div className="space-y-3">{data.roles.map((role:any)=>(
+          <Card key={role.role} onClick={()=>setSelected(role.role)} className={`p-4 cursor-pointer hover:-translate-y-0.5 transition-all ${selected===role.role?c("border-indigo-500/40","border-indigo-300"):""}`}>
+            <div className="flex items-center gap-3"><div className={`w-8 h-8 rounded-lg ${roleColors[role.role]}/20 flex items-center justify-center`}><ShieldCheck size={15} className={roleColors[role.role].replace("bg-","text-")}/></div><div><p className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>{role.label}</p><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{role.users} users · {role.isWildcard ? "all" : role.permissions.length} permissions</p></div></div>
           </Card>
         ))}</div>
         <Card className="p-5 lg:col-span-2">
-          <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Permission Matrix — Project Manager</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}><th className={`text-left font-medium pb-2 pr-4 ${c("text-slate-500","text-slate-400")}`}>Resource</th>{["View","Create","Edit","Delete","Export"].map(h=><th key={h} className={`text-center font-medium pb-2 px-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
-              <tbody>{groups.map((group,gi)=>(
-                <tr key={group} className={`border-b ${c("border-white/[0.04]","border-slate-100")}`}>
-                  <td className={`py-2.5 pr-4 ${c("text-slate-400","text-slate-500")}`}>{group}</td>
-                  {[true,gi<3,gi<3,gi<2,gi<2].map((enabled,pi)=>(
-                    <td key={pi} className="py-2.5 px-3 text-center"><div className={`w-5 h-5 rounded-md mx-auto flex items-center justify-center ${enabled?"bg-emerald-500/15":"bg-slate-500/10"}`}>{enabled?<CheckCircle2 size={12} className="text-emerald-500"/>:<XCircle size={12} className={c("text-slate-600","text-slate-300")}/>}</div></td>
-                  ))}
-                </tr>
-              ))}</tbody>
-            </table>
+          <h3 className={`text-sm font-semibold mb-1 ${c("text-white","text-slate-900")}`}>Permissions — {selectedRole?.label}</h3>
+          <p className={`text-xs mb-4 ${c("text-slate-500","text-slate-400")}`}>{isSuperAdmin ? "Click a page to grant or revoke access for this role." : "Only Super Admin can edit permissions."}{selectedRole?.isWildcard && " This role has full access to everything."}</p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {data.pages.map((page:string) => {
+              const enabled = selectedRole?.isWildcard || selectedRole?.permissions.includes(page);
+              return (
+                <button key={page} disabled={!isSuperAdmin || selectedRole?.isWildcard} onClick={()=>toggle(page, !enabled)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition-colors text-left ${enabled?"bg-emerald-500/10 border-emerald-500/30 text-emerald-500":c("border-white/[0.08] text-slate-400","border-slate-200 text-slate-500")} ${isSuperAdmin && !selectedRole?.isWildcard ? "cursor-pointer hover:opacity-80" : "cursor-default opacity-80"}`}>
+                  {enabled?<CheckCircle2 size={13}/>:<XCircle size={13}/>}{page}
+                </button>
+              );
+            })}
           </div>
         </Card>
       </div>
@@ -1521,11 +1612,13 @@ function RolesPage() {
 
 function AuditPage() {
   const { c } = useTheme();
-  const logs=[{user:"Sarah Chen",action:"Updated employee profile",resource:"Employees",ip:"192.168.1.42",time:"Jun 28, 10:18 AM",severity:"info"},{user:"Elena Rodriguez",action:"Approved leave request #LV-2891",resource:"Leave",ip:"192.168.1.18",time:"Jun 28, 9:54 AM",severity:"info"},{user:"Sanjay Iyer",action:"Generated API key for integration",resource:"Settings",ip:"192.168.1.5",time:"Jun 28, 9:22 AM",severity:"warning"},{user:"Marcus Johnson",action:"Exported employee data (CSV)",resource:"Employees",ip:"192.168.1.33",time:"Jun 27, 4:45 PM",severity:"warning"},{user:"Unknown",action:"Failed login attempt (3x)",resource:"Auth",ip:"103.25.88.211",time:"Jun 27, 3:12 PM",severity:"danger"},{user:"Grace Liu",action:"Ran payroll for June 2026",resource:"Payroll",ip:"192.168.1.29",time:"Jun 27, 1:30 PM",severity:"info"}];
+  const [logs, setLogs] = useState<any[]>([]);
+  useEffect(() => { fetch("/api/audit").then(r => r.json()).then(d => setLogs(d.logs ?? [])); }, []);
   return (
     <div>
-      <PageHeader title="Audit Logs" subtitle="Track all system actions and security events" actions={<Btn variant="secondary" size="sm" icon={Download}>Export Logs</Btn>}/>
+      <PageHeader title="Audit Logs" subtitle="Track all system actions and security events" actions={<Btn variant="secondary" size="sm" icon={Download} onClick={()=>window.location.href="/api/reports/export?type=audit"}>Export Logs</Btn>}/>
       <Card>
+        {logs.length===0 && <p className={`p-4 text-sm ${c("text-slate-500","text-slate-400")}`}>No audit activity recorded yet.</p>}
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["User","Action","Resource","IP Address","Severity","Time"].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
@@ -1548,66 +1641,153 @@ function AuditPage() {
 
 function BillingPage() {
   const { c } = useTheme();
+  const { authUser } = useAuth();
+  const [data, setData] = useState<any>(null);
+  const isAdmin = authUser?.role === "super-admin" || authUser?.role === "hr-admin";
+
+  const load = () => fetch("/api/billing").then(r => r.json()).then(setData);
+  useEffect(() => { load(); }, []);
+
+  const setStatus = async (id: number, status: string) => {
+    await fetch("/api/billing", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, status }) });
+    load();
+  };
+
+  if (!data) return null;
+  const current = data.invoices[0];
+
   return (
     <div>
       <PageHeader title="Billing & Plans" subtitle="Manage subscription and payment information"/>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         <Card className={`p-5 ${c("border-indigo-500/30","border-indigo-300")}`}>
           <div className="flex items-center justify-between mb-3"><Badge variant="info">Current Plan</Badge><Badge variant="success">Active</Badge></div>
-          <h3 className={`text-lg font-bold mb-1 ${c("text-white","text-slate-900")}`}>Enterprise</h3>
+          <h3 className={`text-lg font-bold mb-1 ${c("text-white","text-slate-900")}`}>{data.plan}</h3>
           <p className={`text-sm mb-4 ${c("text-slate-400","text-slate-500")}`}>Full access to all RIAURA features</p>
-          <div className={`text-3xl font-bold ${c("text-white","text-slate-900")}`}>$4,200<span className={`text-base font-normal ${c("text-slate-500","text-slate-400")}`}>/month</span></div>
-          <p className={`text-xs mt-1 mb-4 ${c("text-slate-500","text-slate-400")}`}>Billed annually · 1,248 seats</p>
-          <div className="space-y-1.5 text-xs">{["Unlimited employees","All HR modules","AI Assistant","Priority support","99.99% SLA"].map(f=><div key={f} className={`flex items-center gap-2 ${c("text-slate-400","text-slate-500")}`}><CheckCircle2 size={12} className="text-emerald-500"/>{f}</div>)}</div>
+          <div className={`text-3xl font-bold ${c("text-white","text-slate-900")}`}>${data.pricePerMonth.toLocaleString()}<span className={`text-base font-normal ${c("text-slate-500","text-slate-400")}`}>/month</span></div>
+          <p className={`text-xs mt-1 mb-4 ${c("text-slate-500","text-slate-400")}`}>{data.seats.toLocaleString()} seats</p>
+          <div className="space-y-1.5 text-xs">{["Unlimited employees","All HR modules","Priority support","99.99% SLA"].map(f=><div key={f} className={`flex items-center gap-2 ${c("text-slate-400","text-slate-500")}`}><CheckCircle2 size={12} className="text-emerald-500"/>{f}</div>)}</div>
         </Card>
-        <div className="space-y-4">{[{label:"Next Invoice",value:"$4,200.00",sub:"Due July 1, 2026"},{label:"Payment Method",value:"VISA •••• 4821",sub:"Expires 04/28"},{label:"Current Cycle",value:"Jun 1 – Jun 30",sub:"28 of 30 days"}].map(s=>(
-          <Card key={s.label} className="p-4"><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{s.label}</p><p className={`text-base font-semibold mt-0.5 ${c("text-white","text-slate-900")}`}>{s.value}</p><p className={`text-xs mt-0.5 ${c("text-slate-600","text-slate-400")}`}>{s.sub}</p></Card>
-        ))}</div>
+        <Card className="p-4">
+          <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Current Invoice</p>
+          <p className={`text-base font-semibold mt-0.5 ${c("text-white","text-slate-900")}`}>${(current?.amount ?? 0).toLocaleString()}.00</p>
+          <p className={`text-xs mt-0.5 ${c("text-slate-600","text-slate-400")}`}>{current?.period}</p>
+          <div className="mt-2">{current && <StatusBadge status={current.status}/>}</div>
+          {isAdmin && current && current.status !== "paid" && <Btn size="sm" className="mt-3" onClick={()=>setStatus(current.id,"paid")}>Mark as Paid</Btn>}
+        </Card>
         <Card className="p-5">
-          <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Usage This Month</h3>
-          <div className="space-y-3">{[{label:"Active Seats",used:1248,limit:1500},{label:"Storage",used:287,limit:500},{label:"API Calls",used:82400,limit:100000},{label:"AI Queries",used:4820,limit:10000}].map(u=>(
-            <div key={u.label}>
-              <div className="flex justify-between text-xs mb-1"><span className={c("text-slate-400","text-slate-500")}>{u.label}</span><span className={c("text-slate-300","text-slate-700")}>{u.used.toLocaleString()} / {u.limit.toLocaleString()}</span></div>
-              <ProgressBar value={(u.used/u.limit)*100} color={(u.used/u.limit)>0.85?"bg-amber-500":"bg-indigo-500"}/>
-            </div>
-          ))}</div>
+          <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Seat Usage</h3>
+          <div className="flex justify-between text-xs mb-1"><span className={c("text-slate-400","text-slate-500")}>Active Seats</span><span className={c("text-slate-300","text-slate-700")}>{data.activeSeats.toLocaleString()} / {data.seats.toLocaleString()}</span></div>
+          <ProgressBar value={(data.activeSeats/data.seats)*100} color={(data.activeSeats/data.seats)>0.85?"bg-amber-500":"bg-indigo-500"}/>
         </Card>
       </div>
+      <Card>
+        <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Invoice History</h3></div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Period","Amount","Issued","Status",""].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
+            <tbody>{data.invoices.map((inv:any)=>(
+              <tr key={inv.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")}`}>
+                <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{inv.period}</td>
+                <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>${inv.amount.toLocaleString()}.00</td>
+                <td className={`px-4 py-3 text-xs ${c("text-slate-500","text-slate-400")}`}>{inv.issuedAt}</td>
+                <td className="px-4 py-3"><StatusBadge status={inv.status}/></td>
+                <td className="px-4 py-3">{isAdmin && inv.status !== "paid" && <button onClick={()=>setStatus(inv.id,"paid")} className="text-xs text-indigo-500">Mark Paid</button>}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      </Card>
     </div>
   );
 }
 
 function SettingsPage() {
   const { c } = useTheme();
+  const { authUser } = useAuth();
   const [tab, setTab] = useState("organization");
+  const [settings, setSettings] = useState<any>(null);
+  const [form, setForm] = useState<any>(null);
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [apiKeys, setApiKeys] = useState<any[]>([]);
+  const [newKey, setNewKey] = useState<{ name: string; rawKey: string } | null>(null);
+  const isAdmin = authUser?.role === "super-admin" || authUser?.role === "hr-admin";
   const tabs=[{id:"organization",label:"Organization",icon:Building2},{id:"notifications",label:"Notifications",icon:Bell},{id:"security",label:"Security",icon:Lock},{id:"api",label:"API Keys",icon:Key}];
   const inp=`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none ${c("bg-slate-800/60 border-white/[0.08] text-slate-300 focus:border-indigo-500/50","bg-white border-slate-200 text-slate-700 focus:border-indigo-400")}`;
+
+  const loadSettings = () => fetch("/api/settings").then(r => r.json()).then(d => { setSettings(d.settings); setForm(d.settings); });
+  useEffect(() => { loadSettings(); }, []);
+  useEffect(() => { if (tab==="security") fetch("/api/sessions").then(r => r.json()).then(d => setSessions(d.sessions ?? [])); }, [tab]);
+  useEffect(() => { if (tab==="api" && isAdmin) fetch("/api/api-keys").then(r => r.json()).then(d => setApiKeys(d.keys ?? [])); }, [tab]);
+
+  const save = async (fields: string[]) => {
+    const patch = Object.fromEntries(fields.map(f => [f, form[f]]));
+    await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) });
+    loadSettings();
+  };
+  const toggle = async (field: string) => {
+    const value = !form[field];
+    setForm((p:any) => ({ ...p, [field]: value }));
+    await fetch("/api/settings", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ [field]: value }) });
+  };
+  const revokeSession = async (id: string) => {
+    await fetch(`/api/sessions/${id}`, { method: "DELETE" });
+    fetch("/api/sessions").then(r => r.json()).then(d => setSessions(d.sessions ?? []));
+  };
+  const generateKey = async () => {
+    const res = await fetch("/api/api-keys", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "New API Key" }) });
+    const data = await res.json();
+    if (res.ok) { setNewKey({ name: data.key.name, rawKey: data.key.rawKey }); fetch("/api/api-keys").then(r => r.json()).then(d => setApiKeys(d.keys ?? [])); }
+  };
+  const revokeKey = async (id: number) => {
+    await fetch(`/api/api-keys/${id}`, { method: "DELETE" });
+    fetch("/api/api-keys").then(r => r.json()).then(d => setApiKeys(d.keys ?? []));
+  };
+
+  if (!settings || !form) return null;
+
   return (
     <div>
       <PageHeader title="Settings" subtitle="Manage organization and account preferences"/>
       <div className="flex gap-1 mb-6 flex-wrap">{tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab===t.id?"bg-indigo-600 text-white":c("text-slate-400 hover:text-slate-200 hover:bg-slate-800/60","text-slate-500 hover:text-slate-700 hover:bg-slate-100")}`}><t.icon size={15}/>{t.label}</button>)}</div>
 
       {tab==="organization"&&<div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Card className="p-5"><h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Organization Details</h3><div className="space-y-3">{[["Company Name","RIAURA Technologies Inc."],["Domain","riaura.com"],["Industry","Enterprise Software"],["Company Size","1,001–5,000 employees"],["Headquarters","San Francisco, CA, USA"]].map(([l,v])=><div key={l}><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>{l}</label><input defaultValue={v} className={inp}/></div>)}<Btn variant="primary" size="sm" icon={RefreshCw} className="mt-2">Save Changes</Btn></div></Card>
-        <Card className="p-5"><h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Localization</h3><div className="space-y-3">{[["Fiscal Year Start",["January","April","July"]],["Currency",["USD","EUR","GBP"]],["Timezone",["America/New_York","Asia/Kolkata"]],["Date Format",["MM/DD/YYYY","DD/MM/YYYY"]]].map(([l,opts])=><div key={l as string}><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>{l as string}</label><select className={inp}>{(opts as string[]).map(o=><option key={o}>{o}</option>)}</select></div>)}<Btn variant="primary" size="sm" icon={RefreshCw} className="mt-2">Save Changes</Btn></div></Card>
+        <Card className="p-5"><h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Organization Details</h3><div className="space-y-3">
+          {[["companyName","Company Name"],["domain","Domain"],["industry","Industry"],["companySize","Company Size"],["headquarters","Headquarters"]].map(([key,l])=><div key={key}><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>{l}</label><input disabled={!isAdmin} value={form[key]} onChange={e=>setForm((p:any)=>({...p,[key]:e.target.value}))} className={inp}/></div>)}
+          {isAdmin && <Btn variant="primary" size="sm" icon={RefreshCw} className="mt-2" onClick={()=>save(["companyName","domain","industry","companySize","headquarters"])}>Save Changes</Btn>}
+        </div></Card>
+        <Card className="p-5"><h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Localization</h3><div className="space-y-3">
+          {[["fiscalYearStart","Fiscal Year Start",["January","April","July"]],["currency","Currency",["USD","EUR","GBP"]],["timezone","Timezone",["America/New_York","America/Los_Angeles","Asia/Kolkata"]],["dateFormat","Date Format",["MM/DD/YYYY","DD/MM/YYYY"]]].map(([key,l,opts])=><div key={key as string}><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>{l as string}</label><select disabled={!isAdmin} value={form[key as string]} onChange={e=>setForm((p:any)=>({...p,[key as string]:e.target.value}))} className={inp}>{(opts as string[]).map(o=><option key={o}>{o}</option>)}</select></div>)}
+          {isAdmin && <Btn variant="primary" size="sm" icon={RefreshCw} className="mt-2" onClick={()=>save(["fiscalYearStart","currency","timezone","dateFormat"])}>Save Changes</Btn>}
+        </div></Card>
       </div>}
 
-      {tab==="notifications"&&<Card className="p-5 max-w-2xl"><h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Notification Preferences</h3><div className="space-y-4">{[["Task Assignments","When a task is assigned to you",true],["Project Updates","Status changes and milestone completions",true],["Leave Approvals","When leave is approved or rejected",true],["Payroll Processed","Monthly payroll notifications",false],["AI Insights","Weekly AI-generated insights",false]].map(([l,d,en]:any)=>(
-        <div key={l} className={`flex items-center justify-between py-2 border-b ${c("border-white/[0.04]","border-slate-100")} last:border-0`}><div><p className={`text-sm ${c("text-slate-200","text-slate-700")}`}>{l}</p><p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{d}</p></div><div className={`w-10 h-5 rounded-full cursor-pointer relative ${en?"bg-indigo-600":c("bg-slate-700","bg-slate-300")}`}><div className={`w-4 h-4 rounded-full bg-white absolute top-0.5 ${en?"left-5":"left-0.5"}`}/></div>
+      {tab==="notifications"&&<Card className="p-5 max-w-2xl"><h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Notification Preferences</h3><div className="space-y-4">{[["notifyTaskAssignments","Task Assignments","When a task is assigned to you"],["notifyProjectUpdates","Project Updates","Status changes and milestone completions"],["notifyLeaveApprovals","Leave Approvals","When leave is approved or rejected"],["notifyPayrollProcessed","Payroll Processed","Monthly payroll notifications"]].map(([key,l,d])=>(
+        <div key={key} className={`flex items-center justify-between py-2 border-b ${c("border-white/[0.04]","border-slate-100")} last:border-0`}><div><p className={`text-sm ${c("text-slate-200","text-slate-700")}`}>{l}</p><p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{d}</p></div><div onClick={()=>isAdmin&&toggle(key)} className={`w-10 h-5 rounded-full relative ${isAdmin?"cursor-pointer":""} ${form[key]?"bg-indigo-600":c("bg-slate-700","bg-slate-300")}`}><div className={`w-4 h-4 rounded-full bg-white absolute top-0.5 transition-all ${form[key]?"left-5":"left-0.5"}`}/></div>
         </div>
       ))}</div></Card>}
 
       {tab==="security"&&<div className="grid grid-cols-1 lg:grid-cols-2 gap-4 max-w-4xl">
-        <Card className="p-5"><h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Authentication</h3><div className="space-y-3">{[["Two-Factor Authentication","Enabled","text-emerald-500"],["SSO / SAML","Configured","text-emerald-500"],["Password Policy","Strong (12+ chars)","text-amber-500"],["Session Timeout","8 hours",c("text-slate-400","text-slate-500")]].map(([l,s,col])=><div key={l} className={`flex items-center justify-between p-3 rounded-lg ${c("bg-slate-700/20","bg-slate-50")}`}><span className={`text-sm ${c("text-slate-300","text-slate-700")}`}>{l}</span><span className={`text-xs font-medium ${col}`}>{s}</span></div>)}</div></Card>
-        <Card className="p-5"><h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Active Sessions</h3><div className="space-y-3">{[{device:"MacBook Pro 16\"",location:"San Francisco, CA",last:"Now — Current",current:true},{device:"iPhone 16 Pro",location:"SF, CA",last:"2 hours ago",current:false},{device:"Chrome on Windows",location:"New York, NY",last:"Yesterday",current:false}].map(s=><div key={s.device} className={`flex items-center justify-between p-3 rounded-lg ${c("bg-slate-700/20","bg-slate-50")}`}><div><p className={`text-sm ${c("text-slate-200","text-slate-700")}`}>{s.device}</p><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{s.location} · {s.last}</p></div>{s.current?<Badge variant="success">Current</Badge>:<button className="text-xs text-red-500">Revoke</button>}</div>)}</div></Card>
+        <Card className="p-5"><h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Authentication</h3><div className="space-y-3">
+          <div className={`flex items-center justify-between p-3 rounded-lg ${c("bg-slate-700/20","bg-slate-50")}`}><span className={`text-sm ${c("text-slate-300","text-slate-700")}`}>Two-Factor Authentication</span><div onClick={()=>isAdmin&&toggle("twoFactorEnabled")} className={`w-9 h-5 rounded-full relative ${isAdmin?"cursor-pointer":""} ${form.twoFactorEnabled?"bg-emerald-500":c("bg-slate-700","bg-slate-300")}`}><div className={`w-4 h-4 rounded-full bg-white absolute top-0.5 ${form.twoFactorEnabled?"left-4":"left-0.5"}`}/></div></div>
+          <div className={`flex items-center justify-between p-3 rounded-lg ${c("bg-slate-700/20","bg-slate-50")}`}><span className={`text-sm ${c("text-slate-300","text-slate-700")}`}>SSO / SAML</span><div onClick={()=>isAdmin&&toggle("ssoEnabled")} className={`w-9 h-5 rounded-full relative ${isAdmin?"cursor-pointer":""} ${form.ssoEnabled?"bg-emerald-500":c("bg-slate-700","bg-slate-300")}`}><div className={`w-4 h-4 rounded-full bg-white absolute top-0.5 ${form.ssoEnabled?"left-4":"left-0.5"}`}/></div></div>
+          <div className={`flex items-center justify-between p-3 rounded-lg ${c("bg-slate-700/20","bg-slate-50")}`}><span className={`text-sm ${c("text-slate-300","text-slate-700")}`}>Password Policy</span><span className="text-xs font-medium text-amber-500">{form.passwordPolicy}</span></div>
+          <div className={`flex items-center justify-between p-3 rounded-lg ${c("bg-slate-700/20","bg-slate-50")}`}><span className={`text-sm ${c("text-slate-300","text-slate-700")}`}>Session Timeout</span><span className={`text-xs font-medium ${c("text-slate-400","text-slate-500")}`}>{form.sessionTimeoutHours} hours</span></div>
+        </div></Card>
+        <Card className="p-5"><h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Active Sessions</h3><div className="space-y-3">
+          {sessions.length===0 && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No active sessions.</p>}
+          {sessions.map(s=><div key={s.id} className={`flex items-center justify-between p-3 rounded-lg ${c("bg-slate-700/20","bg-slate-50")}`}><div><p className={`text-sm ${c("text-slate-200","text-slate-700")}`}>{s.device}</p><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{s.ip} · {s.last}</p></div>{s.current?<Badge variant="success">Current</Badge>:<button onClick={()=>revokeSession(s.id)} className="text-xs text-red-500">Revoke</button>}</div>)}
+        </div></Card>
       </div>}
 
       {tab==="api"&&<Card className="p-5 max-w-2xl">
-        <div className="flex items-center justify-between mb-4"><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>API Keys</h3><Btn size="sm" icon={Plus}>Generate Key</Btn></div>
-        <div className="space-y-3">{[{name:"Production API Key",key:"riaura_prod_sk_••••••4a8f",created:"Jan 12, 2026",last:"2 min ago",perms:"Read + Write"},{name:"Analytics Integration",key:"riaura_int_sk_••••••9b3c",created:"Mar 5, 2026",last:"1 day ago",perms:"Read Only"},{name:"Webhook Secret",key:"riaura_wh_sk_••••••2e7d",created:"Apr 20, 2026",last:"5 min ago",perms:"Webhook"}].map(k=>(
-          <div key={k.name} className={`p-4 rounded-xl border ${c("bg-slate-700/20 border-white/[0.06]","bg-slate-50 border-slate-200")}`}>
-            <div className="flex items-start justify-between mb-2"><div><p className={`text-sm font-medium ${c("text-slate-200","text-slate-800")}`}>{k.name}</p><code className="text-xs text-indigo-500 font-mono mt-0.5 block">{k.key}</code></div><div className="flex gap-1"><button className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-500 hover:text-slate-300 hover:bg-slate-700","text-slate-400 hover:text-slate-600 hover:bg-slate-200")}`}><Copy size={13}/></button><button className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-500 hover:text-red-400 hover:bg-slate-700","text-slate-400 hover:text-red-500 hover:bg-slate-200")}`}><Trash2 size={13}/></button></div></div>
-            <div className={`flex items-center gap-4 text-[11px] ${c("text-slate-600","text-slate-400")} flex-wrap`}><span>Created {k.created}</span><span>Last used {k.last}</span><Badge variant="default">{k.perms}</Badge></div>
+        <div className="flex items-center justify-between mb-4"><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>API Keys</h3>{isAdmin && <Btn size="sm" icon={Plus} onClick={generateKey}>Generate Key</Btn>}</div>
+        {newKey && <div className={`p-3 mb-3 rounded-xl border ${c("bg-emerald-500/10 border-emerald-500/25","bg-emerald-50 border-emerald-200")}`}><p className="text-xs font-medium text-emerald-500 mb-1">Copy this key now — it won't be shown again:</p><code className="text-xs font-mono break-all">{newKey.rawKey}</code></div>}
+        {!isAdmin && <p className={`text-sm ${c("text-slate-500","text-slate-400")}`}>Only HR Admin or Super Admin can manage API keys.</p>}
+        <div className="space-y-3">{apiKeys.map(k=>(
+          <div key={k.id} className={`p-4 rounded-xl border ${c("bg-slate-700/20 border-white/[0.06]","bg-slate-50 border-slate-200")}`}>
+            <div className="flex items-start justify-between mb-2"><div><p className={`text-sm font-medium ${c("text-slate-200","text-slate-800")}`}>{k.name}</p><code className="text-xs text-indigo-500 font-mono mt-0.5 block">{k.key}</code></div><button onClick={()=>revokeKey(k.id)} className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-500 hover:text-red-400 hover:bg-slate-700","text-slate-400 hover:text-red-500 hover:bg-slate-200")}`}><Trash2 size={13}/></button></div>
+            <div className={`flex items-center gap-4 text-[11px] ${c("text-slate-600","text-slate-400")} flex-wrap`}><span>Created {k.created}</span><span>Last used {k.lastUsed}</span><Badge variant="default">{k.permissions}</Badge></div>
           </div>
         ))}</div>
       </Card>}
@@ -1617,11 +1797,59 @@ function SettingsPage() {
 
 function ProfilePage() {
   const { c } = useTheme();
-  const { authUser } = useAuth();
-  const u = authUser || demoAccounts[0];
+  const { authUser, updateAuthUser } = useAuth();
+  const u: AuthUser = authUser || { id: 0, name: "Guest", email: "", avatar: "?", avatarColor: "bg-slate-500", role: "employee", roleLabel: "Employee", dept: "", title: "", phone: "", location: "", permissions: [] };
   const nameParts = u.name.split(" ");
+  const [firstName, setFirstName] = useState(nameParts[0]||"");
+  const [lastName, setLastName] = useState(nameParts.slice(1).join(" ")||"");
+  const [phone, setPhone] = useState(u.phone);
+  const [saved, setSaved] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [pwError, setPwError] = useState("");
+  const [pwSuccess, setPwSuccess] = useState(false);
+  const [pwSubmitting, setPwSubmitting] = useState(false);
   const inp=`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none ${c("bg-slate-800/60 border-white/[0.08] text-slate-300 focus:border-indigo-500/50","bg-white border-slate-200 text-slate-700 focus:border-indigo-400")}`;
   const cfg = roleConfig[u.role];
+
+  const save = async () => {
+    const res = await fetch("/api/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ firstName, lastName, phone }),
+    });
+    const data = await res.json();
+    if (res.ok && data.user) updateAuthUser(data.user);
+    setSaved(true);
+    setTimeout(()=>setSaved(false), 2000);
+  };
+
+  const changePassword = async () => {
+    setPwError("");
+    setPwSuccess(false);
+    if (!currentPassword || !newPassword || !confirmPassword) { setPwError("All fields are required."); return; }
+    if (newPassword.length < 8) { setPwError("New password must be at least 8 characters."); return; }
+    if (newPassword !== confirmPassword) { setPwError("New passwords do not match."); return; }
+    setPwSubmitting(true);
+    try {
+      const res = await fetch("/api/profile/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setPwError(data.error || "Could not change password."); return; }
+      setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
+      setPwSuccess(true);
+      setTimeout(()=>setPwSuccess(false), 3000);
+    } catch {
+      setPwError("Could not reach the server. Please try again.");
+    } finally {
+      setPwSubmitting(false);
+    }
+  };
+
   return (
     <div>
       <PageHeader title="My Profile" subtitle="Manage personal information"/>
@@ -1637,14 +1865,38 @@ function ProfilePage() {
           <div className={`w-full mt-6 space-y-2 text-xs text-left ${c("text-slate-500","text-slate-400")}`}>
             <div className="flex items-center gap-2"><Mail size={12}/>{u.email}</div>
             <div className="flex items-center gap-2"><Building2 size={12}/>{u.dept}</div>
-            <div className="flex items-center gap-2"><MapPin size={12}/>San Francisco, CA</div>
+            {u.location && <div className="flex items-center gap-2"><MapPin size={12}/>{u.location}</div>}
           </div>
-          <Btn variant="secondary" size="sm" icon={Edit2} className="mt-5 w-full justify-center">Edit Profile</Btn>
         </Card>
         <Card className="p-5 lg:col-span-2">
           <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Personal Information</h3>
-          <div className="grid grid-cols-2 gap-3">{[["First Name",nameParts[0]||""],["Last Name",nameParts.slice(1).join(" ")||""],["Email",u.email],["Phone",employees.find(e=>e.id===u.id)?.phone||"+1 (555) 000-0001"],["Job Title",u.title],["Department",u.dept],["Role Level",u.roleLabel],["Time Zone","America/Los_Angeles (PST)"]].map(([l,v])=><div key={l}><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>{l}</label><input defaultValue={v} className={inp}/></div>)}</div>
-          <Btn variant="primary" size="sm" icon={RefreshCw} className="mt-4">Save Changes</Btn>
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>First Name</label><input value={firstName} onChange={e=>setFirstName(e.target.value)} className={inp}/></div>
+            <div><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>Last Name</label><input value={lastName} onChange={e=>setLastName(e.target.value)} className={inp}/></div>
+            <div><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>Email</label><input disabled value={u.email} className={inp}/></div>
+            <div><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>Phone</label><input value={phone} onChange={e=>setPhone(e.target.value)} className={inp}/></div>
+            <div><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>Job Title</label><input disabled value={u.title} className={inp}/></div>
+            <div><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>Department</label><input disabled value={u.dept} className={inp}/></div>
+          </div>
+          <p className={`text-xs mt-2 ${c("text-slate-500","text-slate-400")}`}>Job title and department are managed by HR.</p>
+          <div className="flex items-center gap-3 mt-4">
+            <Btn variant="primary" size="sm" icon={RefreshCw} onClick={save}>Save Changes</Btn>
+            {saved && <span className="text-xs text-emerald-500">Saved</span>}
+          </div>
+        </Card>
+        <Card className="p-5 lg:col-span-3">
+          <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Change Password</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>Current Password</label><input type="password" autoComplete="current-password" value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} className={inp}/></div>
+            <div><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>New Password</label><input type="password" autoComplete="new-password" value={newPassword} onChange={e=>setNewPassword(e.target.value)} className={inp}/></div>
+            <div><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>Confirm New Password</label><input type="password" autoComplete="new-password" value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} className={inp}/></div>
+          </div>
+          <p className={`text-xs mt-2 ${c("text-slate-500","text-slate-400")}`}>At least 8 characters. You'll stay signed in here; other devices will be signed out.</p>
+          {pwError && <p className="text-xs text-red-400 mt-2">{pwError}</p>}
+          <div className="flex items-center gap-3 mt-4">
+            <Btn variant="primary" size="sm" icon={Lock} onClick={changePassword} disabled={pwSubmitting}>{pwSubmitting ? "Changing..." : "Change Password"}</Btn>
+            {pwSuccess && <span className="text-xs text-emerald-500">Password changed</span>}
+          </div>
         </Card>
       </div>
     </div>
@@ -1653,14 +1905,22 @@ function ProfilePage() {
 
 function ReportsPage() {
   const { c } = useTheme();
-  const reports=[{name:"Monthly Headcount Report",desc:"Employee counts, joins and exits by department",type:"HR",icon:Users,color:"bg-indigo-500/15 text-indigo-500"},{name:"Payroll Summary Q2 2026",desc:"Total payroll costs, department breakdown, tax analysis",type:"Finance",icon:DollarSign,color:"bg-emerald-500/15 text-emerald-500"},{name:"Project Delivery Report",desc:"On-time delivery rates, budget adherence, milestones",type:"Projects",icon:FolderKanban,color:"bg-violet-500/15 text-violet-500"},{name:"Attendance & Absenteeism",desc:"Monthly attendance patterns, late arrivals, overtime",type:"HR",icon:Clock,color:"bg-amber-500/15 text-amber-500"},{name:"Performance Review Summary",desc:"Rating distributions, top performers, improvement areas",type:"HR",icon:Award,color:"bg-rose-500/15 text-rose-500"},{name:"Department KPI Report",desc:"KPI achievement vs targets across all departments",type:"Analytics",icon:Target,color:"bg-cyan-500/15 text-cyan-500"}];
+  const reports=[
+    {name:"Headcount Report",desc:"Employee names, departments, titles, status, and join dates",type:"HR",key:"headcount",icon:Users,color:"bg-indigo-500/15 text-indigo-500"},
+    {name:"Payroll Summary",desc:"Payroll records by employee: basic, allowances, deductions, net pay",type:"Finance",key:"payroll",icon:DollarSign,color:"bg-emerald-500/15 text-emerald-500"},
+    {name:"Project Delivery Report",desc:"Project status, budget vs spend, and task completion",type:"Projects",key:"projects",icon:FolderKanban,color:"bg-violet-500/15 text-violet-500"},
+    {name:"Attendance Report",desc:"30-day attendance rate per employee",type:"HR",key:"attendance",icon:Clock,color:"bg-amber-500/15 text-amber-500"},
+    {name:"Performance Review Summary",desc:"Review scores and status by employee and cycle",type:"HR",key:"performance",icon:Award,color:"bg-rose-500/15 text-rose-500"},
+    {name:"Department KPI Report",desc:"KPI achievement vs targets across all departments",type:"Analytics",key:"kpi",icon:Target,color:"bg-cyan-500/15 text-cyan-500"},
+  ];
+  const download = (key: string) => { window.location.href = `/api/reports/export?type=${key}`; };
   return (
     <div>
-      <PageHeader title="Reports" subtitle="Generate and download organization reports" actions={<Btn size="sm" icon={Plus}>Custom Report</Btn>}/>
+      <PageHeader title="Reports" subtitle="Generate and download organization reports"/>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{reports.map(r=>(
         <Card key={r.name} className="p-5 cursor-pointer transition-all hover:-translate-y-0.5">
           <div className="flex items-start gap-3 mb-4"><div className={`w-10 h-10 rounded-xl ${r.color} flex items-center justify-center flex-shrink-0`}><r.icon size={18}/></div><div><h4 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>{r.name}</h4><p className={`text-xs mt-0.5 leading-relaxed ${c("text-slate-500","text-slate-400")}`}>{r.desc}</p></div></div>
-          <div className="flex items-center justify-between"><Badge variant="default">{r.type}</Badge><button className="text-xs text-indigo-500 flex items-center gap-1"><Download size={11}/>Download</button></div>
+          <div className="flex items-center justify-between"><Badge variant="default">{r.type}</Badge><button onClick={()=>download(r.key)} className="text-xs text-indigo-500 flex items-center gap-1"><Download size={11}/>Download CSV</button></div>
         </Card>
       ))}</div>
     </div>
@@ -1670,196 +1930,51 @@ function ReportsPage() {
 // ─── EMPLOYEE PROFILE PAGE ───────────────────────────────────────────────────
 
 function EmployeeProfilePage() {
-  const { c, light } = useTheme();
+  const { c } = useTheme();
+  const { authUser } = useAuth();
   const { selectedEmployeeId, navigateTo } = useApp();
-  const col = light ? LIGHT : DARK;
-  const emp = employees.find(e => e.id === selectedEmployeeId) || employees[0];
+  const [emp, setEmp] = useState<any>(null);
   const [tab, setTab] = useState("overview");
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [empProjects, setEmpProjects] = useState<any[]>([]);
+  const [attendance, setAttendance] = useState<any>(null);
+  const [leave, setLeave] = useState<any>(null);
+  const [payroll, setPayroll] = useState<any[]>([]);
+  const [performance, setPerformance] = useState<any>(null);
 
-  const tabs = ["Overview","Personal Info","Employment","Performance","Attendance","Leave","Payroll","Documents","Notes"];
+  const canViewSensitive = authUser?.id === selectedEmployeeId || authUser?.role === "super-admin";
 
-  // Derived data
-  const joinYear = parseInt(emp.joined.split(", ")[1] || "2021");
-  const tenure = new Date().getFullYear() - joinYear;
-  const perfScore = [4.8,4.2,4.5,3.8,3.5,4.7,4.0,4.3,4.6,3.9,4.4,4.9][emp.id - 1] || 4.2;
-  const salaryMonthly = emp.salary / 12;
+  useEffect(() => {
+    fetch(`/api/employees/${selectedEmployeeId}`).then(r => r.json()).then(d => setEmp(d.employee)).catch(() => {});
+  }, [selectedEmployeeId]);
 
-  // Chart data per employee
-  const perfTrend = [
-    { q: "Q1 2025", score: +(perfScore - 0.4).toFixed(1) },
-    { q: "Q2 2025", score: +(perfScore - 0.2).toFixed(1) },
-    { q: "Q3 2025", score: +(perfScore - 0.1).toFixed(1) },
-    { q: "Q4 2025", score: +(perfScore + 0.1).toFixed(1) },
-    { q: "Q1 2026", score: +(perfScore).toFixed(1) },
-    { q: "Q2 2026", score: +(perfScore + 0.15).toFixed(1) },
-  ];
+  useEffect(() => {
+    if (!emp) return;
+    fetch(`/api/tasks?assignee=${encodeURIComponent(emp.name)}`).then(r => r.json()).then(d => setTasks(d.tasks ?? []));
+    fetch(`/api/projects?memberName=${encodeURIComponent(emp.name)}`).then(r => r.json()).then(d => setEmpProjects(d.projects ?? []));
+    fetch("/api/performance").then(r => r.json()).then(setPerformance);
+    if (canViewSensitive) {
+      fetch(`/api/attendance?employeeId=${selectedEmployeeId}`).then(r => r.json()).then(setAttendance).catch(() => {});
+      fetch(`/api/leave?employeeId=${selectedEmployeeId}`).then(r => r.json()).then(setLeave).catch(() => {});
+      fetch(`/api/payroll?employeeId=${selectedEmployeeId}`).then(r => r.json()).then(d => setPayroll(d.payslips ?? [])).catch(() => {});
+    }
+  }, [emp, canViewSensitive]);
 
-  const attendanceLog = [
-    { date: "Jun 28, 2026", in: "09:02 AM", out: "06:14 PM", hours: "9h 12m", status: "present" },
-    { date: "Jun 27, 2026", in: "09:21 AM", out: "06:05 PM", hours: "8h 44m", status: "present" },
-    { date: "Jun 26, 2026", in: "09:48 AM", out: "06:30 PM", hours: "8h 42m", status: "late" },
-    { date: "Jun 25, 2026", in: "—",        out: "—",        hours: "—",      status: "absent" },
-    { date: "Jun 24, 2026", in: "08:58 AM", out: "06:02 PM", hours: "9h 04m", status: "present" },
-    { date: "Jun 23, 2026", in: "09:05 AM", out: "06:00 PM", hours: "8h 55m", status: "present" },
-    { date: "Jun 22, 2026", in: "—",        out: "—",        hours: "—",      status: "absent" },
-    { date: "Jun 21, 2026", in: "—",        out: "—",        hours: "—",      status: "absent" },
-    { date: "Jun 20, 2026", in: "09:03 AM", out: "06:18 PM", hours: "9h 15m", status: "present" },
-    { date: "Jun 19, 2026", in: "09:55 AM", out: "06:30 PM", hours: "8h 35m", status: "late" },
-  ];
+  if (!emp) return null;
 
-  const workHoursData = [
-    { month: "Jan", hours: 168 }, { month: "Feb", hours: 152 },
-    { month: "Mar", hours: 176 }, { month: "Apr", hours: 162 },
-    { month: "May", hours: 171 }, { month: "Jun", hours: 158 },
-  ];
-
-  const salaryHistory = [
-    { year: "2023", salary: Math.round(emp.salary * 0.82 / 1000) },
-    { year: "2024", salary: Math.round(emp.salary * 0.9 / 1000) },
-    { year: "2025", salary: Math.round(emp.salary * 0.96 / 1000) },
-    { year: "2026", salary: Math.round(emp.salary / 1000) },
-  ];
-
-  const salaryBreakdown = [
-    { name: "Basic Salary", value: 60, color: "#4F46E5" },
-    { name: "HRA", value: 20, color: "#22C55E" },
-    { name: "Allowances", value: 10, color: "#F59E0B" },
-    { name: "Tax Deduction", value: 10, color: "#EF4444" },
-  ];
-
-  const skills = [
-    { name: "React / Next.js", level: 92 },
-    { name: "TypeScript", level: 88 },
-    { name: "Node.js", level: 75 },
-    { name: "System Design", level: 82 },
-    { name: "CI/CD & DevOps", level: 70 },
-    { name: "PostgreSQL", level: 78 },
-  ];
-
-  const competencies = [
-    { name: "Leadership", score: 87 },
-    { name: "Technical", score: 94 },
-    { name: "Communication", score: 82 },
-    { name: "Teamwork", score: 90 },
-    { name: "Innovation", score: 85 },
-    { name: "Delivery", score: 91 },
-  ];
-
-  const currentProjects = [
-    { name: "Riaura Platform v3.0", progress: 68, status: "in-progress", role: "Lead Engineer" },
-    { name: "Security Audit 2026", progress: 91, status: "review", role: "Contributor" },
-    { name: "AI Analytics Engine", progress: 15, status: "planning", role: "Advisor" },
-  ];
-
-  const recentActivity = [
-    { icon: CheckCircle2, color: "text-emerald-500", text: "Completed task: Implement OAuth2 flow", time: "2h ago" },
-    { icon: MessageSquare, color: "text-indigo-500", text: "Added comment on Security Audit milestone", time: "4h ago" },
-    { icon: Upload, color: "text-violet-500", text: "Uploaded Q2 performance self-review", time: "Yesterday" },
-    { icon: CheckSquare, color: "text-amber-500", text: "Closed 3 bug tickets in Platform v3.0", time: "2 days ago" },
-    { icon: Star, color: "text-rose-500", text: "Received 5-star peer review from James Wilson", time: "3 days ago" },
-  ];
-
-  const upcomingTasks = [
-    { title: "Review PR: Auth module refactor", priority: "high", due: "Today" },
-    { title: "Team stand-up preparation", priority: "medium", due: "Tomorrow" },
-    { title: "Q3 architecture proposal doc", priority: "high", due: "Jul 5" },
-    { title: "Mentor session with new hire", priority: "low", due: "Jul 8" },
-  ];
-
-  const teamMembers = [
-    { initials: "JW", color: "bg-cyan-500", name: "James Wilson" },
-    { initials: "NK", color: "bg-sky-500", name: "Nina Kowalski" },
-    { initials: "OH", color: "bg-fuchsia-500", name: "Omar Hassan" },
-    { initials: "TN", color: "bg-teal-500", name: "Tom Nakamura" },
-  ];
-
-  const performanceGoals = [
-    { title: "Ship Platform v3.0 on schedule", progress: 68, status: "on-track" },
-    { title: "Reduce API response time by 30%", progress: 52, status: "on-track" },
-    { title: "Complete AWS Solutions Architect cert", progress: 35, status: "at-risk" },
-    { title: "Mentor 2 junior engineers", progress: 80, status: "on-track" },
-  ];
-
-  const reviewHistory = [
-    { date: "Apr 1, 2026", reviewer: "Elena Rodriguez", period: "Q1 2026", score: perfScore, status: "completed" },
-    { date: "Jan 2, 2026", reviewer: "Elena Rodriguez", period: "Q4 2025", score: +(perfScore - 0.1).toFixed(1), status: "completed" },
-    { date: "Oct 1, 2025", reviewer: "Elena Rodriguez", period: "Q3 2025", score: +(perfScore - 0.2).toFixed(1), status: "completed" },
-    { date: "Jul 1, 2025", reviewer: "Elena Rodriguez", period: "Q2 2025", score: +(perfScore - 0.3).toFixed(1), status: "completed" },
-    { date: "Apr 1, 2025", reviewer: "Elena Rodriguez", period: "Q1 2025", score: +(perfScore - 0.4).toFixed(1), status: "completed" },
-  ];
-
-  const leaveBalances = [
-    { type: "Annual Leave", total: 24, used: 8, remaining: 16, color: "bg-indigo-500" },
-    { type: "Sick Leave", total: 12, used: 2, remaining: 10, color: "bg-red-500" },
-    { type: "Casual Leave", total: 6, used: 3, remaining: 3, color: "bg-amber-500" },
-    { type: "Maternity/Paternity", total: 90, used: 0, remaining: 90, color: "bg-pink-500" },
-  ];
-
-  const leaveHistory = [
-    { dates: "Jun 2–5, 2026", type: "Annual Leave", days: 4, reason: "Family vacation", status: "approved" },
-    { dates: "May 14, 2026", type: "Sick Leave", days: 1, reason: "Unwell", status: "approved" },
-    { dates: "Apr 18–19, 2026", type: "Annual Leave", days: 2, reason: "Personal work", status: "approved" },
-    { dates: "Mar 3, 2026", type: "Casual Leave", days: 1, reason: "Errand", status: "approved" },
-    { dates: "Feb 10–11, 2026", type: "Annual Leave", days: 2, reason: "Travel", status: "approved" },
-    { dates: "Jan 2, 2026", type: "Sick Leave", days: 1, reason: "Doctor visit", status: "approved" },
-  ];
-
-  const payslips = [
-    { month: "Jun 2026", gross: salaryMonthly * 1.15, net: salaryMonthly * 0.93, status: "processed" },
-    { month: "May 2026", gross: salaryMonthly * 1.15, net: salaryMonthly * 0.93, status: "processed" },
-    { month: "Apr 2026", gross: salaryMonthly * 1.15, net: salaryMonthly * 0.93, status: "processed" },
-    { month: "Mar 2026", gross: salaryMonthly * 1.15, net: salaryMonthly * 0.93, status: "processed" },
-    { month: "Feb 2026", gross: salaryMonthly * 1.15, net: salaryMonthly * 0.93, status: "processed" },
-    { month: "Jan 2026", gross: salaryMonthly * 1.15, net: salaryMonthly * 0.93, status: "processed" },
-  ];
-
-  const documents = [
-    { name: "Resume / CV", size: "420 KB", date: emp.joined, icon: FileText, color: "bg-indigo-500/15 text-indigo-500" },
-    { name: "Offer Letter", size: "185 KB", date: emp.joined, icon: FileText, color: "bg-emerald-500/15 text-emerald-500" },
-    { name: "Employment Contract", size: "312 KB", date: emp.joined, icon: FileText, color: "bg-violet-500/15 text-violet-500" },
-    { name: "NDA Agreement", size: "98 KB", date: emp.joined, icon: Lock, color: "bg-amber-500/15 text-amber-500" },
-    { name: "ID Proof", size: "256 KB", date: emp.joined, icon: User, color: "bg-rose-500/15 text-rose-500" },
-    { name: "Educational Certificates", size: "1.2 MB", date: emp.joined, icon: Award, color: "bg-cyan-500/15 text-cyan-500" },
-  ];
-
-  const notes = [
-    { author: "Elena Rodriguez", date: "Jun 20, 2026", content: "Excellent performance in Q2. Consistently delivers high-quality work ahead of schedule. Recommended for senior engineering track promotion in next cycle.", border: "border-indigo-500" },
-    { author: "Marcus Johnson", date: "May 15, 2026", content: "Strong technical leadership on Platform v3.0. The auth module implementation was clean and well-documented.", border: "border-emerald-500" },
-    { author: "Sanjay Iyer", date: "Apr 3, 2026", content: "Participated in Q1 board review. Strong candidate for internal mentorship program. Follow up at next 1:1.", border: "border-amber-500" },
-    { author: "Elena Rodriguez", date: "Feb 10, 2026", content: "Annual review completed — rating 4.8/5. Salary increase approved for FY2026. Continue monitoring career development goals.", border: "border-violet-500" },
-  ];
-
-  const heatmapData = Array.from({ length: 30 }, (_, i) => {
-    const rand = Math.random();
-    const isWeekend = (i % 7 === 5 || i % 7 === 6);
-    if (isWeekend) return { day: i + 1, status: "weekend" };
-    const r = rand * 100;
-    if (r < emp.attendance * 0.05) return { day: i + 1, status: "absent" };
-    if (r < emp.attendance * 0.15) return { day: i + 1, status: "late" };
-    return { day: i + 1, status: "present" };
-  });
-
+  const myReview = performance?.reviews?.find((r: any) => r.name === emp.name);
+  const tabs = canViewSensitive ? ["Overview", "Attendance", "Leave", "Payroll", "Performance"] : ["Overview", "Performance"];
   const tbtn = (id: string) =>
     `px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${tab === id ? "bg-indigo-600 text-white" : c("text-slate-400 hover:bg-slate-800/60 hover:text-slate-200","text-slate-500 hover:bg-slate-100 hover:text-slate-700")}`;
 
-  const FieldBox = ({ label, value }: { label: string; value: string }) => (
-    <div className={`p-3 rounded-lg ${c("bg-slate-800/50","bg-slate-50")}`}>
-      <p className={`text-[10px] font-semibold uppercase tracking-wide mb-1 ${c("text-slate-500","text-slate-400")}`}>{label}</p>
-      <p className={`text-sm font-medium ${c("text-slate-200","text-slate-800")}`}>{value}</p>
-    </div>
-  );
-
   return (
     <div className="space-y-5">
-      {/* Back button */}
       <button onClick={() => navigateTo("employees")} className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${c("text-slate-400 hover:text-indigo-400","text-slate-500 hover:text-indigo-600")}`}>
         <ChevronLeft size={16}/> Back to Employees
       </button>
 
-      {/* Profile Header */}
       <Card className="p-6">
         <div className="flex flex-col lg:flex-row gap-6">
-          {/* Avatar + identity */}
           <div className="flex items-start gap-5 flex-1">
             <div className={`w-20 h-20 rounded-2xl ${emp.avatarColor} flex items-center justify-center text-2xl font-bold text-white flex-shrink-0 ring-4 ${c("ring-slate-700","ring-slate-200")}`}>
               {emp.avatar}
@@ -1872,29 +1987,21 @@ function EmployeeProfilePage() {
               <p className={`text-sm mb-2 ${c("text-slate-400","text-slate-500")}`}>{emp.role}</p>
               <div className="flex items-center gap-1 mb-3"><Badge variant="info">{emp.dept}</Badge></div>
               <div className={`grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-1.5 text-xs ${c("text-slate-500","text-slate-400")}`}>
-                <span className="flex items-center gap-1.5"><MapPin size={11}/>{emp.location}</span>
+                {emp.location && <span className="flex items-center gap-1.5"><MapPin size={11}/>{emp.location}</span>}
                 <span className="flex items-center gap-1.5"><Mail size={11}/><span className="truncate">{emp.email}</span></span>
-                <span className="flex items-center gap-1.5"><Phone size={11}/>{emp.phone}</span>
+                {emp.phone && <span className="flex items-center gap-1.5"><Phone size={11}/>{emp.phone}</span>}
                 <span className="flex items-center gap-1.5"><Calendar size={11}/>Joined {emp.joined}</span>
               </div>
             </div>
           </div>
-          {/* Action buttons */}
-          <div className="flex flex-wrap gap-2 lg:flex-col lg:items-end">
-            <Btn variant="primary" size="sm" icon={Edit2}>Edit Profile</Btn>
-            <Btn variant="secondary" size="sm" icon={Send}>Send Message</Btn>
-            <Btn variant="secondary" size="sm" icon={Download}>Download CV</Btn>
-          </div>
         </div>
 
-        {/* Quick stats */}
-        <div className={`grid grid-cols-2 sm:grid-cols-5 gap-4 mt-5 pt-5 border-t ${c("border-white/[0.06]","border-slate-100")}`}>
+        <div className={`grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5 pt-5 border-t ${c("border-white/[0.06]","border-slate-100")}`}>
           {[
-            { label: "Attendance", value: `${emp.attendance}%`, sub: "this month", color: emp.attendance >= 95 ? "text-emerald-500" : "text-amber-500" },
-            { label: "Performance", value: `${perfScore}/5`, sub: "Q2 2026 rating", color: "text-indigo-500" },
-            { label: "Tenure", value: `${tenure}y`, sub: "with company", color: c("text-slate-200","text-slate-700") },
-            { label: "Tasks", value: "42", sub: "completed YTD", color: "text-violet-500" },
-            { label: "Salary", value: `$${(emp.salary/1000).toFixed(0)}K`, sub: "annual CTC", color: "text-emerald-500" },
+            { label: "Attendance", value: `${emp.attendance}%`, sub: "last 30 days", color: emp.attendance >= 95 ? "text-emerald-500" : "text-amber-500" },
+            { label: "Open Tasks", value: String(tasks.filter((t: any) => t.status !== "done").length), sub: `${tasks.length} total`, color: "text-violet-500" },
+            { label: "Projects", value: String(empProjects.length), sub: "assigned", color: "text-indigo-500" },
+            ...(canViewSensitive ? [{ label: "Salary", value: `$${(emp.salary/1000).toFixed(0)}K`, sub: "annual CTC", color: "text-emerald-500" }] : []),
           ].map(s => (
             <div key={s.label} className="text-center">
               <p className={`text-lg font-bold ${s.color}`}>{s.value}</p>
@@ -1905,53 +2012,23 @@ function EmployeeProfilePage() {
         </div>
       </Card>
 
-      {/* Tab Navigation */}
-      <div className={`flex gap-1 overflow-x-auto pb-1 flex-wrap`}>
+      <div className="flex gap-1 overflow-x-auto pb-1 flex-wrap">
         {tabs.map(t => (
-          <button key={t} onClick={() => setTab(t.toLowerCase().replace(/ /g, "-"))} className={tbtn(t.toLowerCase().replace(/ /g, "-"))}>
-            {t}
-          </button>
+          <button key={t} onClick={() => setTab(t.toLowerCase())} className={tbtn(t.toLowerCase())}>{t}</button>
         ))}
       </div>
 
-      {/* ── TAB: Overview ── */}
       {tab === "overview" && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-          {/* Left column */}
           <div className="lg:col-span-2 space-y-5">
             <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-3 ${c("text-white","text-slate-900")}`}>About</h3>
-              <p className={`text-sm leading-relaxed ${c("text-slate-400","text-slate-600")}`}>
-                {emp.name} is an experienced {emp.role} at RIAURA with {tenure}+ years of contributions to the {emp.dept} team.
-                Known for delivering high-quality, scalable solutions and mentoring junior colleagues, {emp.name.split(" ")[0]} consistently
-                exceeds expectations on complex cross-functional projects. Based in {emp.location}, {emp.name.split(" ")[0]} brings deep
-                domain expertise and a collaborative work style to every initiative.
-              </p>
-            </Card>
-
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Skills & Expertise</h3>
-              <div className="space-y-3">
-                {skills.map(skill => (
-                  <div key={skill.name} className="flex items-center gap-3">
-                    <span className={`text-xs w-40 flex-shrink-0 ${c("text-slate-300","text-slate-600")}`}>{skill.name}</span>
-                    <div className="flex-1"><ProgressBar value={skill.level} color="bg-indigo-500"/></div>
-                    <span className={`text-xs w-8 text-right font-semibold ${c("text-slate-400","text-slate-500")}`}>{skill.level}%</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            <Card className="p-5">
               <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Current Projects</h3>
+              {empProjects.length === 0 && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Not currently assigned to any project.</p>}
               <div className="space-y-4">
-                {currentProjects.map(p => (
-                  <div key={p.name}>
+                {empProjects.map((p: any) => (
+                  <div key={p.id}>
                     <div className="flex items-center justify-between mb-1.5">
-                      <div>
-                        <span className={`text-sm font-medium ${c("text-slate-200","text-slate-700")}`}>{p.name}</span>
-                        <span className={`ml-2 text-xs ${c("text-slate-500","text-slate-400")}`}>· {p.role}</span>
-                      </div>
+                      <span className={`text-sm font-medium ${c("text-slate-200","text-slate-700")}`}>{p.name}</span>
                       <StatusBadge status={p.status}/>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1962,346 +2039,37 @@ function EmployeeProfilePage() {
                 ))}
               </div>
             </Card>
-
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Recent Activity</h3>
-              <div className="space-y-3">
-                {recentActivity.map((a, i) => (
-                  <div key={i} className="flex items-start gap-3">
-                    <div className={`w-7 h-7 rounded-lg ${c("bg-slate-700/50","bg-slate-100")} flex items-center justify-center flex-shrink-0`}>
-                      <a.icon size={13} className={a.color}/>
-                    </div>
-                    <div className="flex-1">
-                      <p className={`text-xs ${c("text-slate-300","text-slate-700")}`}>{a.text}</p>
-                      <p className={`text-[10px] mt-0.5 ${c("text-slate-600","text-slate-400")}`}>{a.time}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
           </div>
-
-          {/* Right column */}
           <div className="space-y-5">
             <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Quick Stats</h3>
-              <div className="space-y-3">
-                {[
-                  { icon: CheckCircle2, color: "text-emerald-500", label: "Tasks Completed", value: "42" },
-                  { icon: Clock, color: "text-indigo-500", label: "Avg Hours/Day", value: "8.7h" },
-                  { icon: Star, color: "text-amber-500", label: "Peer Rating", value: "4.9 / 5" },
-                  { icon: FolderKanban, color: "text-violet-500", label: "Projects Active", value: "3" },
-                  { icon: Award, color: "text-rose-500", label: "Recognitions", value: "7 this year" },
-                ].map(s => (
-                  <div key={s.label} className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-lg ${c("bg-slate-700/50","bg-slate-100")} flex items-center justify-center`}>
-                      <s.icon size={14} className={s.color}/>
-                    </div>
-                    <div className="flex-1">
-                      <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{s.label}</p>
-                    </div>
-                    <span className={`text-sm font-semibold ${c("text-slate-200","text-slate-700")}`}>{s.value}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Upcoming Tasks</h3>
+              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Open Tasks</h3>
+              {tasks.filter((t: any) => t.status !== "done").length === 0 && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No open tasks.</p>}
               <div className="space-y-2.5">
-                {upcomingTasks.map((t, i) => (
-                  <div key={i} className="flex items-start gap-2.5">
-                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${t.priority === "high" ? "bg-amber-500" : t.priority === "medium" ? "bg-indigo-500" : "bg-slate-500"}`}/>
+                {tasks.filter((t: any) => t.status !== "done").slice(0, 6).map((t: any) => (
+                  <div key={t.id} className="flex items-start gap-2.5">
+                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${t.priority === "critical" ? "bg-red-500" : t.priority === "high" ? "bg-amber-500" : "bg-indigo-500"}`}/>
                     <div className="flex-1 min-w-0">
                       <p className={`text-xs ${c("text-slate-300","text-slate-700")}`}>{t.title}</p>
-                      <p className={`text-[10px] mt-0.5 ${c("text-slate-600","text-slate-400")}`}>{t.due}</p>
+                      <p className={`text-[10px] mt-0.5 ${c("text-slate-600","text-slate-400")}`}>{t.project} · Due {t.due}</p>
                     </div>
                   </div>
                 ))}
               </div>
             </Card>
-
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Team Members</h3>
-              <div className="space-y-3">
-                {teamMembers.map(m => (
-                  <div key={m.name} className="flex items-center gap-3">
-                    <Avatar initials={m.initials} color={m.color} size="sm"/>
-                    <span className={`text-sm ${c("text-slate-300","text-slate-700")}`}>{m.name}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
           </div>
         </div>
       )}
 
-      {/* ── TAB: Personal Info ── */}
-      {tab === "personal-info" && (
-        <div className="space-y-5 max-w-4xl">
-          <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Contact Details</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className={`p-3 rounded-lg ${c("bg-slate-800/50","bg-slate-50")} flex items-center justify-between`}>
-                <div><p className={`text-[10px] font-semibold uppercase ${c("text-slate-500","text-slate-400")}`}>Work Email</p><p className={`text-sm mt-0.5 ${c("text-slate-200","text-slate-700")}`}>{emp.email}</p></div>
-                <button className={c("text-slate-600 hover:text-slate-300","text-slate-400 hover:text-slate-600")}><Copy size={14}/></button>
-              </div>
-              <div className={`p-3 rounded-lg ${c("bg-slate-800/50","bg-slate-50")} flex items-center justify-between`}>
-                <div><p className={`text-[10px] font-semibold uppercase ${c("text-slate-500","text-slate-400")}`}>Phone</p><p className={`text-sm mt-0.5 ${c("text-slate-200","text-slate-700")}`}>{emp.phone}</p></div>
-                <button className={c("text-slate-600 hover:text-slate-300","text-slate-400 hover:text-slate-600")}><Copy size={14}/></button>
-              </div>
-              <div className={`p-3 rounded-lg ${c("bg-slate-800/50","bg-slate-50")} flex items-center justify-between`}>
-                <div><p className={`text-[10px] font-semibold uppercase ${c("text-slate-500","text-slate-400")}`}>LinkedIn</p><p className={`text-sm mt-0.5 ${c("text-slate-200","text-slate-700")}`}>linkedin.com/in/{emp.name.toLowerCase().replace(/ /g,"-")}</p></div>
-                <button className={c("text-slate-600 hover:text-slate-300","text-slate-400 hover:text-slate-600")}><Copy size={14}/></button>
-              </div>
-              <div className={`p-3 rounded-lg ${c("bg-slate-800/50","bg-slate-50")} flex items-center justify-between`}>
-                <div><p className={`text-[10px] font-semibold uppercase ${c("text-slate-500","text-slate-400")}`}>GitHub</p><p className={`text-sm mt-0.5 ${c("text-slate-200","text-slate-700")}`}>github.com/{emp.name.split(" ")[0].toLowerCase()}</p></div>
-                <button className={c("text-slate-600 hover:text-slate-300","text-slate-400 hover:text-slate-600")}><Copy size={14}/></button>
-              </div>
-            </div>
-          </Card>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Personal Details</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <FieldBox label="Date of Birth" value="Mar 14, 1990"/>
-                <FieldBox label="Nationality" value="American"/>
-                <FieldBox label="Gender" value="Not specified"/>
-                <FieldBox label="Blood Type" value="O+"/>
-                <FieldBox label="Marital Status" value="Single"/>
-                <FieldBox label="Personal Email" value={`${emp.name.split(" ")[0].toLowerCase()}@gmail.com`}/>
-              </div>
-            </Card>
-
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Home Address</h3>
-              <div className="grid grid-cols-2 gap-3">
-                <FieldBox label="Street" value="142 Maple Ave, Apt 3B"/>
-                <FieldBox label="City" value={emp.location}/>
-                <FieldBox label="State" value="California"/>
-                <FieldBox label="ZIP Code" value="94103"/>
-                <FieldBox label="Country" value="United States"/>
-              </div>
-            </Card>
-          </div>
-
-          <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Emergency Contacts</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {[
-                { name: "Alex Chen", relation: "Spouse", phone: "+1 (555) 902-1122" },
-                { name: "Linda Chen", relation: "Parent", phone: "+1 (555) 903-4455" },
-              ].map(ec => (
-                <div key={ec.name} className={`p-4 rounded-xl border ${c("bg-slate-700/20 border-white/[0.06]","bg-slate-50 border-slate-200")}`}>
-                  <div className="flex items-center gap-3 mb-2">
-                    <div className="w-9 h-9 rounded-full bg-indigo-600/20 flex items-center justify-center"><User size={14} className="text-indigo-500"/></div>
-                    <div><p className={`text-sm font-semibold ${c("text-slate-200","text-slate-800")}`}>{ec.name}</p><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{ec.relation}</p></div>
-                  </div>
-                  <div className={`flex items-center gap-1.5 text-xs ${c("text-slate-500","text-slate-400")}`}><Phone size={11}/>{ec.phone}</div>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* ── TAB: Employment ── */}
-      {tab === "employment" && (
-        <div className="space-y-5 max-w-4xl">
-          <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Current Position</h3>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              <FieldBox label="Job Title" value={emp.role}/>
-              <FieldBox label="Department" value={emp.dept}/>
-              <FieldBox label="Team" value="Platform Core"/>
-              <FieldBox label="Reporting Manager" value="Elena Rodriguez"/>
-              <FieldBox label="Work Type" value="Full-time"/>
-              <FieldBox label="Work Mode" value="Hybrid"/>
-              <FieldBox label="Employment Type" value="Permanent"/>
-              <FieldBox label="Office Location" value={emp.location}/>
-              <FieldBox label="Employee ID" value={`EMP-10${emp.id.toString().padStart(2,"0")}`}/>
-            </div>
-          </Card>
-
-          <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Work Timeline</h3>
-            <div className="relative pl-5 space-y-6">
-              <div className={`absolute left-1.5 top-2 bottom-2 w-px ${c("bg-slate-700","bg-slate-200")}`}/>
-              {[
-                { date: emp.joined, title: emp.role, dept: emp.dept, desc: "Current role — leading core platform engineering initiatives and mentoring junior engineers." },
-                { date: "Jan 2023", title: emp.role.replace("Senior","Mid-level"), dept: emp.dept, desc: "Promoted after consistently exceeding targets. Led migration of legacy auth system." },
-                { date: "Jun 2020", title: "Junior " + emp.role.replace("Senior ","").replace("Lead","Engineer"), dept: emp.dept, desc: "Joined RIAURA as part of the early engineering team. Focused on frontend components and API integration." },
-              ].map((item, i) => (
-                <div key={i} className="relative flex items-start gap-4">
-                  <div className={`w-3 h-3 rounded-full flex-shrink-0 mt-0.5 -ml-5 border-2 ${i === 0 ? "bg-indigo-500 border-indigo-500" : c("bg-slate-800 border-slate-600","bg-white border-slate-300")}`}/>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <h4 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>{item.title}</h4>
-                      {i === 0 && <Badge variant="success">Current</Badge>}
-                    </div>
-                    <p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{item.dept} · {item.date}</p>
-                    <p className={`text-xs mt-2 leading-relaxed ${c("text-slate-400","text-slate-600")}`}>{item.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Assets & Equipment</h3>
-            <div className="space-y-3">
-              {[
-                { asset: "MacBook Pro 16\" M3 Max", id: "ASSET-4821", assigned: emp.joined },
-                { asset: "iPhone 15 Pro", id: "ASSET-4822", assigned: "Mar 1, 2023" },
-                { asset: "LG 27\" 4K Monitor", id: "ASSET-4823", assigned: emp.joined },
-                { asset: "YubiKey 5C NFC", id: "ASSET-4824", assigned: "Jun 1, 2022" },
-              ].map(a => (
-                <div key={a.id} className={`flex items-center justify-between p-3 rounded-lg ${c("bg-slate-700/20","bg-slate-50")}`}>
-                  <div>
-                    <p className={`text-sm font-medium ${c("text-slate-200","text-slate-800")}`}>{a.asset}</p>
-                    <p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{a.id} · Assigned {a.assigned}</p>
-                  </div>
-                  <Badge variant="success">Active</Badge>
-                </div>
-              ))}
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* ── TAB: Performance ── */}
-      {tab === "performance" && (
-        <div className="space-y-5">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <Card className="p-5 flex flex-col items-center">
-              <h3 className={`text-sm font-semibold mb-4 self-start ${c("text-white","text-slate-900")}`}>Overall Rating</h3>
-              <div className="relative w-36 h-36">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={[{ value: perfScore }, { value: 5 - perfScore }]} cx="50%" cy="50%" innerRadius={42} outerRadius={58} startAngle={90} endAngle={-270} dataKey="value">
-                      <Cell key="emp-pfilled" fill="#4F46E5"/><Cell key="emp-pempty" fill={c("#334155","#E2E8F0")}/>
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className={`text-2xl font-bold ${c("text-white","text-slate-900")}`}>{perfScore}</span>
-                  <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>out of 5</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-1 mt-2">
-                {[1,2,3,4,5].map(s => <Star key={s} size={14} className={s <= Math.round(perfScore) ? "text-amber-500 fill-amber-500" : c("text-slate-600","text-slate-300")}/>)}
-              </div>
-              <p className={`text-xs mt-1 ${c("text-slate-500","text-slate-400")}`}>Q2 2026 · Excellent</p>
-            </Card>
-
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Rating Trend</h3>
-              <ResponsiveContainer width="100%" height={180}>
-                <AreaChart data={perfTrend}>
-                  <defs>
-                    <linearGradient id="pfGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#4F46E5" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#4F46E5" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/>
-                  <XAxis dataKey="q" tick={{ fill: col.tickColor, fontSize: 10 }} axisLine={false} tickLine={false}/>
-                  <YAxis domain={[3, 5]} tick={{ fill: col.tickColor, fontSize: 10 }} axisLine={false} tickLine={false}/>
-                  <Tooltip content={(p: any) => <ChartTip {...p} light={light}/>}/>
-                  <Area key="emp-score" type="monotone" dataKey="score" name="Rating" stroke="#4F46E5" strokeWidth={2} fill="url(#pfGrad)"/>
-                </AreaChart>
-              </ResponsiveContainer>
-            </Card>
-          </div>
-
-          <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Performance Goals</h3>
-            <div className="space-y-4">
-              {performanceGoals.map(goal => (
-                <div key={goal.title}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className={`text-sm ${c("text-slate-200","text-slate-700")}`}>{goal.title}</span>
-                    <StatusBadge status={goal.status}/>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1"><ProgressBar value={goal.progress} color={goal.status === "on-track" ? "bg-emerald-500" : "bg-amber-500"}/></div>
-                    <span className={`text-xs w-8 ${c("text-slate-500","text-slate-400")}`}>{goal.progress}%</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Competency Breakdown</h3>
-            <div className="space-y-3">
-              {competencies.map(comp => (
-                <div key={comp.name} className="flex items-center gap-3">
-                  <span className={`text-xs w-32 flex-shrink-0 ${c("text-slate-400","text-slate-600")}`}>{comp.name}</span>
-                  <div className="flex-1"><ProgressBar value={comp.score} color="bg-indigo-500"/></div>
-                  <span className={`text-xs w-8 text-right font-medium ${c("text-slate-400","text-slate-500")}`}>{comp.score}%</span>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          <Card>
-            <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}>
-              <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Review History</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>
-                  {["Date","Reviewer","Period","Score","Status"].map(h => <th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}
-                </tr></thead>
-                <tbody>{reviewHistory.map((r, i) => (
-                  <tr key={i} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
-                    <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{r.date}</td>
-                    <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{r.reviewer}</td>
-                    <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{r.period}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1">
-                        <Star size={12} className="text-amber-500 fill-amber-500"/>
-                        <span className={`text-sm font-semibold ${r.score >= 4.5 ? "text-emerald-500" : r.score >= 4 ? "text-amber-500" : "text-red-500"}`}>{r.score.toFixed(1)}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3"><StatusBadge status={r.status}/></td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* ── TAB: Attendance ── */}
-      {tab === "attendance" && (
+      {tab === "attendance" && attendance && (
         <div className="space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Today's Status</h3>
-              <div className="flex flex-col items-center gap-3">
-                <div className={`w-20 h-20 rounded-full flex items-center justify-center border-4 border-emerald-500 bg-emerald-500/10`}>
-                  <div className="text-center"><Clock size={22} className="text-emerald-500 mx-auto mb-0.5"/><p className={`text-xs font-semibold ${c("text-slate-300","text-slate-600")}`}>Punched In</p></div>
-                </div>
-                <p className="text-sm text-emerald-500 font-medium">In since 09:02 AM</p>
-                <div className="w-full space-y-1.5 text-xs">
-                  {[["Today's Hours","5h 22m"],["Break","30 min"],["Expected","8h 00m"]].map(([l,v]) => (
-                    <div key={l} className="flex justify-between"><span className={c("text-slate-500","text-slate-400")}>{l}</span><span className={`font-semibold ${c("text-slate-200","text-slate-700")}`}>{v}</span></div>
-                  ))}
-                </div>
-              </div>
-            </Card>
-
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Monthly Stats</h3>
+              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>This Month</h3>
               <div className="space-y-3">
                 {[
-                  { label: "Days Present", value: Math.round(emp.attendance / 100 * 25).toString(), color: "text-emerald-500" },
-                  { label: "Days Absent", value: (25 - Math.round(emp.attendance / 100 * 25)).toString(), color: "text-red-500" },
-                  { label: "Late Arrivals", value: "2", color: "text-amber-500" },
-                  { label: "Avg Hours/Day", value: "8.7h", color: c("text-slate-200","text-slate-700") },
+                  { label: "Days Present", value: attendance.monthly.presentDays, color: "text-emerald-500" },
+                  { label: "Late Arrivals", value: attendance.monthly.lateArrivals, color: "text-amber-500" },
+                  { label: "Avg Hours/Day", value: `${attendance.monthly.avgHours}h`, color: c("text-slate-200","text-slate-700") },
                 ].map(s => (
                   <div key={s.label} className="flex justify-between">
                     <span className={`text-sm ${c("text-slate-400","text-slate-500")}`}>{s.label}</span>
@@ -2310,61 +2078,26 @@ function EmployeeProfilePage() {
                 ))}
               </div>
             </Card>
-
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>30-Day Heatmap</h3>
-              <div className="grid grid-cols-7 gap-1">
-                {heatmapData.map((d, i) => (
-                  <div key={i} title={`Day ${d.day}: ${d.status}`}
-                    className={`w-full aspect-square rounded-sm ${
-                      d.status === "present" ? "bg-emerald-500/70" :
-                      d.status === "late" ? "bg-amber-500/70" :
-                      d.status === "absent" ? "bg-red-500/40" :
-                      c("bg-slate-700/30","bg-slate-100")
-                    }`}/>
-                ))}
-              </div>
-              <div className={`flex items-center gap-3 mt-3 text-[10px] ${c("text-slate-500","text-slate-400")}`}>
-                <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm bg-emerald-500/70"/>Present</div>
-                <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm bg-amber-500/70"/>Late</div>
-                <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-sm bg-red-500/40"/>Absent</div>
+            <Card className="p-5 md:col-span-2">
+              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Monthly Heatmap</h3>
+              <div className="grid grid-cols-10 gap-1">
+                {attendance.heatmap.map((d: any, i: number) => <div key={i} className={`w-full aspect-square rounded-sm ${!d.present ? "bg-red-500/40" : d.late ? "bg-amber-500/60" : "bg-emerald-500/60"}`} title={`Day ${d.day}`}/>)}
               </div>
             </Card>
           </div>
-
-          <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Monthly Work Hours — 2026</h3>
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={workHoursData}>
-                <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/>
-                <XAxis dataKey="month" tick={{ fill: col.tickColor, fontSize: 11 }} axisLine={false} tickLine={false}/>
-                <YAxis tick={{ fill: col.tickColor, fontSize: 11 }} axisLine={false} tickLine={false} domain={[130, 190]}/>
-                <Tooltip content={(p: any) => <ChartTip {...p} light={light}/>}/>
-                <Bar key="emp-hours" dataKey="hours" name="Work Hours" fill="#4F46E5" radius={[4,4,0,0]}/>
-              </BarChart>
-            </ResponsiveContainer>
-          </Card>
-
           <Card>
-            <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}>
-              <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Attendance Log</h3>
-            </div>
+            <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Attendance Log</h3></div>
+            {attendance.log.length === 0 && <p className={`p-4 text-xs ${c("text-slate-500","text-slate-400")}`}>No attendance recorded yet.</p>}
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>
-                  {["Date","In Time","Out Time","Hours","Status"].map(h => <th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}
-                </tr></thead>
-                <tbody>{attendanceLog.map((a, i) => (
-                  <tr key={i} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
+                <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Date","In","Out","Hours","Status"].map(h => <th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
+                <tbody>{attendance.log.map((a: any, i: number) => (
+                  <tr key={i} className={`border-b ${c("border-white/[0.04]","border-slate-100")}`}>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{a.date}</td>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{a.in}</td>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{a.out}</td>
                     <td className={`px-4 py-3 text-sm font-medium ${c("text-slate-300","text-slate-700")}`}>{a.hours}</td>
-                    <td className="px-4 py-3">
-                      <Badge variant={a.status === "present" ? "success" : a.status === "late" ? "warning" : "danger"}>
-                        {a.status.charAt(0).toUpperCase() + a.status.slice(1)}
-                      </Badge>
-                    </td>
+                    <td className="px-4 py-3"><Badge variant={a.status === "present" ? "success" : a.status === "late" ? "warning" : "danger"}>{a.status}</Badge></td>
                   </tr>
                 ))}</tbody>
               </table>
@@ -2373,31 +2106,25 @@ function EmployeeProfilePage() {
         </div>
       )}
 
-      {/* ── TAB: Leave ── */}
-      {tab === "leave" && (
+      {tab === "leave" && leave && (
         <div className="space-y-5">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {leaveBalances.map(l => (
+            {leave.balances.map((l: any) => (
               <Card key={l.type} className="p-4">
                 <div className="flex items-center gap-2 mb-3"><div className={`w-2.5 h-2.5 rounded-full ${l.color}`}/><span className={`text-xs font-medium ${c("text-slate-300","text-slate-700")}`}>{l.type}</span></div>
                 <div className={`text-2xl font-bold mb-1 ${c("text-white","text-slate-900")}`}>{l.remaining}<span className={`text-base font-normal ${c("text-slate-500","text-slate-400")}`}>/{l.total}</span></div>
-                <p className={`text-xs mb-2 ${c("text-slate-500","text-slate-400")}`}>days remaining</p>
                 <ProgressBar value={(l.used / l.total) * 100} color={l.color}/>
               </Card>
             ))}
           </div>
-
           <Card>
-            <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}>
-              <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Leave History</h3>
-            </div>
+            <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Leave History</h3></div>
+            {leave.history.length === 0 && <p className={`p-4 text-xs ${c("text-slate-500","text-slate-400")}`}>No leave requests yet.</p>}
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>
-                  {["Dates","Type","Days","Reason","Status"].map(h => <th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}
-                </tr></thead>
-                <tbody>{leaveHistory.map((l, i) => (
-                  <tr key={i} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
+                <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Dates","Type","Days","Reason","Status"].map(h => <th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
+                <tbody>{leave.history.map((l: any, i: number) => (
+                  <tr key={i} className={`border-b ${c("border-white/[0.04]","border-slate-100")}`}>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{l.dates}</td>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{l.type}</td>
                     <td className={`px-4 py-3 text-sm font-medium ${c("text-slate-300","text-slate-700")}`}>{l.days}</td>
@@ -2408,169 +2135,48 @@ function EmployeeProfilePage() {
               </table>
             </div>
           </Card>
-
-          <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Leave Calendar — June 2026</h3>
-            <div className="grid grid-cols-7 gap-1 mb-2">
-              {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d => <div key={d} className={`text-center text-[10px] font-medium ${c("text-slate-600","text-slate-400")}`}>{d}</div>)}
-            </div>
-            <div className="grid grid-cols-7 gap-1">
-              <div/>{/* offset */}
-              {Array.from({ length: 30 }, (_, i) => {
-                const d = i + 1;
-                const isLeave = [2,3,4,5].includes(d);
-                const isToday = d === 28;
-                return (
-                  <div key={d} className={`h-8 rounded flex items-center justify-center text-[11px] font-medium
-                    ${isLeave ? "bg-amber-500/20 text-amber-500" :
-                      isToday ? "bg-indigo-600/20 text-indigo-400" :
-                      c("text-slate-500","text-slate-400")}`}>
-                    {d}
-                  </div>
-                );
-              })}
-            </div>
-            <div className={`flex items-center gap-4 mt-3 text-[10px] ${c("text-slate-500","text-slate-400")}`}>
-              <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-amber-500/20"/><span className="text-amber-500">Leave taken</span></div>
-              <div className="flex items-center gap-1"><div className="w-3 h-3 rounded-sm bg-indigo-600/20"/><span className="text-indigo-400">Today</span></div>
-            </div>
-          </Card>
         </div>
       )}
 
-      {/* ── TAB: Payroll ── */}
       {tab === "payroll" && (
-        <div className="space-y-5">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {[
-              { label: "Basic Salary", value: `$${(salaryMonthly * 0.6 / 1000).toFixed(1)}K`, sub: "per month", color: "text-indigo-500" },
-              { label: "Allowances", value: `$${(salaryMonthly * 0.15 / 1000).toFixed(1)}K`, sub: "per month", color: "text-emerald-500" },
-              { label: "Deductions", value: `$${(salaryMonthly * 0.22 / 1000).toFixed(1)}K`, sub: "tax & benefits", color: "text-red-500" },
-              { label: "Net Pay", value: `$${(salaryMonthly * 0.93 / 1000).toFixed(1)}K`, sub: "take-home", color: c("text-white","text-slate-900") },
-            ].map(s => (
-              <Card key={s.label} className="p-4 text-center">
-                <p className={`text-xs ${c("text-slate-500","text-slate-400")} mb-1`}>{s.label}</p>
-                <p className={`text-xl font-bold ${s.color}`}>{s.value}</p>
-                <p className={`text-[10px] mt-0.5 ${c("text-slate-600","text-slate-400")}`}>{s.sub}</p>
-              </Card>
-            ))}
+        <Card>
+          <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Payslip History</h3></div>
+          {payroll.length === 0 && <p className={`p-4 text-xs ${c("text-slate-500","text-slate-400")}`}>No payslips generated yet.</p>}
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Month","Basic","Allowances","Deductions","Net Pay","Status"].map(h => <th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
+              <tbody>{payroll.map((p: any) => (
+                <tr key={p.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")}`}>
+                  <td className={`px-4 py-3 text-sm font-medium ${c("text-slate-300","text-slate-700")}`}>{p.month}</td>
+                  <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>${(p.basic/1000).toFixed(1)}K</td>
+                  <td className="px-4 py-3 text-sm text-emerald-500">+${(p.allowances/1000).toFixed(1)}K</td>
+                  <td className="px-4 py-3 text-sm text-red-500">-${(p.deductions/1000).toFixed(1)}K</td>
+                  <td className={`px-4 py-3 text-sm font-semibold ${c("text-white","text-slate-900")}`}>${(p.netPay/1000).toFixed(1)}K</td>
+                  <td className="px-4 py-3"><Badge variant="success">{p.status}</Badge></td>
+                </tr>
+              ))}</tbody>
+            </table>
           </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Compensation History</h3>
-              <ResponsiveContainer width="100%" height={180}>
-                <LineChart data={salaryHistory}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/>
-                  <XAxis dataKey="year" tick={{ fill: col.tickColor, fontSize: 11 }} axisLine={false} tickLine={false}/>
-                  <YAxis tick={{ fill: col.tickColor, fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}K`}/>
-                  <Tooltip content={(p: any) => <ChartTip {...p} light={light}/>}/>
-                  <Line key="emp-salary" type="monotone" dataKey="salary" name="Annual Salary ($K)" stroke="#4F46E5" strokeWidth={2.5} dot={{ fill: "#4F46E5", r: 4 }}/>
-                </LineChart>
-              </ResponsiveContainer>
-            </Card>
-
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Salary Breakdown</h3>
-              <div className="flex items-center gap-4">
-                <ResponsiveContainer width={120} height={120}>
-                  <PieChart>
-                    <Pie data={salaryBreakdown} cx="50%" cy="50%" innerRadius={30} outerRadius={52} paddingAngle={2} dataKey="value">
-                      {salaryBreakdown.map((entry, i) => <Cell key={i} fill={entry.color}/>)}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="space-y-2 flex-1">
-                  {salaryBreakdown.map(s => (
-                    <div key={s.name} className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full" style={{ background: s.color }}/><span className={c("text-slate-400","text-slate-500")}>{s.name}</span></div>
-                      <span className={`font-semibold ${c("text-slate-300","text-slate-700")}`}>{s.value}%</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </Card>
-          </div>
-
-          <Card>
-            <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")} flex items-center justify-between`}>
-              <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Payslip History</h3>
-              <Btn variant="secondary" size="sm" icon={Download}>Download All</Btn>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>
-                  {["Month","Gross","Net Pay","Status","Payslip"].map(h => <th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}
-                </tr></thead>
-                <tbody>{payslips.map((p, i) => (
-                  <tr key={i} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
-                    <td className={`px-4 py-3 text-sm font-medium ${c("text-slate-300","text-slate-700")}`}>{p.month}</td>
-                    <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>${(p.gross / 1000).toFixed(1)}K</td>
-                    <td className={`px-4 py-3 text-sm font-semibold ${c("text-white","text-slate-900")}`}>${(p.net / 1000).toFixed(1)}K</td>
-                    <td className="px-4 py-3"><Badge variant="success">Processed</Badge></td>
-                    <td className="px-4 py-3"><button className="text-xs text-indigo-500 flex items-center gap-1"><Download size={11}/>PDF</button></td>
-                  </tr>
-                ))}</tbody>
-              </table>
-            </div>
-          </Card>
-        </div>
+        </Card>
       )}
 
-      {/* ── TAB: Documents ── */}
-      {tab === "documents" && (
-        <div className="space-y-5">
-          <div className="flex justify-end">
-            <Btn variant="primary" size="sm" icon={Upload}>Upload Document</Btn>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {documents.map(doc => (
-              <Card key={doc.name} className="p-4">
-                <div className="flex items-start gap-3 mb-3">
-                  <div className={`w-10 h-10 rounded-xl ${doc.color} flex items-center justify-center flex-shrink-0`}>
-                    <doc.icon size={18}/>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>{doc.name}</p>
-                    <p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{doc.size} · Added {doc.date}</p>
-                  </div>
+      {tab === "performance" && (
+        <Card>
+          <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Performance Review</h3></div>
+          <div className="p-5">
+            {!myReview && <p className={`text-sm ${c("text-slate-500","text-slate-400")}`}>No performance review on record for the current cycle.</p>}
+            {myReview && (
+              <div className="flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-1">
+                  {[1,2,3,4,5].map(s => <Star key={s} size={16} className={myReview.score && s <= Math.round(myReview.score) ? "text-amber-500 fill-amber-500" : c("text-slate-600","text-slate-300")}/>)}
                 </div>
-                <div className="flex gap-2">
-                  <Btn variant="secondary" size="sm" icon={Download} className="flex-1 justify-center">Download</Btn>
-                  <Btn variant="ghost" size="sm" icon={Eye}>Preview</Btn>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── TAB: Notes ── */}
-      {tab === "notes" && (
-        <div className="space-y-5 max-w-3xl">
-          <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-3 ${c("text-white","text-slate-900")}`}>Add Note</h3>
-            <textarea rows={3} placeholder="Add a private note about this employee..." className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none resize-none mb-3 ${c("bg-slate-800/60 border-white/[0.08] text-slate-300 placeholder-slate-600 focus:border-indigo-500/50","bg-white border-slate-200 text-slate-700 placeholder-slate-400 focus:border-indigo-400")}`}/>
-            <Btn variant="primary" size="sm" icon={Plus}>Add Note</Btn>
-          </Card>
-
-          <div className="space-y-4">
-            {notes.map((note, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${note.border}`}>
-                <Card className="p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-indigo-600/20 flex items-center justify-center"><User size={11} className="text-indigo-500"/></div>
-                      <span className={`text-xs font-semibold ${c("text-slate-300","text-slate-700")}`}>{note.author}</span>
-                    </div>
-                    <span className={`text-[10px] ${c("text-slate-600","text-slate-400")}`}>{note.date}</span>
-                  </div>
-                  <p className={`text-sm leading-relaxed ${c("text-slate-400","text-slate-600")}`}>{note.content}</p>
-                </Card>
+                <span className={`text-lg font-bold ${c("text-white","text-slate-900")}`}>{myReview.score != null ? myReview.score.toFixed(1) : "—"} / 5</span>
+                <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{myReview.period} · Reviewer: {myReview.reviewer}</span>
+                <StatusBadge status={myReview.status}/>
               </div>
-            ))}
+            )}
           </div>
-        </div>
+        </Card>
       )}
     </div>
   );
@@ -2578,159 +2184,91 @@ function EmployeeProfilePage() {
 
 // ─── MY WORK PAGE ────────────────────────────────────────────────────────────
 
-const myWorkTasks = [
-  { id: 1, title: "Implement OAuth2 authentication flow", project: "Riaura Platform v3.0", priority: "high", status: "in-progress", due: "Jul 5, 2026", timeLogged: "3h 20m", estimate: "8h", tags: ["backend","security"], subtasks: 4, done: 2 },
-  { id: 2, title: "Set up CI/CD pipeline for staging", project: "Riaura Platform v3.0", priority: "critical", status: "todo", due: "Jul 3, 2026", timeLogged: "0h", estimate: "5h", tags: ["devops"], subtasks: 3, done: 0 },
-  { id: 3, title: "Performance audit & optimization", project: "Riaura Platform v3.0", priority: "medium", status: "review", due: "Jul 10, 2026", timeLogged: "6h 15m", estimate: "6h", tags: ["performance"], subtasks: 6, done: 5 },
-  { id: 4, title: "Write unit tests for payment module", project: "Riaura Platform v3.0", priority: "high", status: "in-progress", due: "Jul 8, 2026", timeLogged: "2h 45m", estimate: "4h", tags: ["testing"], subtasks: 8, done: 3 },
-  { id: 5, title: "Code review: dashboard refactor PR #214", project: "Riaura Platform v3.0", priority: "medium", status: "todo", due: "Jul 4, 2026", timeLogged: "0h", estimate: "2h", tags: ["review"], subtasks: 0, done: 0 },
-  { id: 6, title: "Create API documentation for v3 endpoints", project: "Riaura Platform v3.0", priority: "low", status: "done", due: "Jun 28, 2026", timeLogged: "4h 00m", estimate: "4h", tags: ["docs"], subtasks: 2, done: 2 },
-  { id: 7, title: "Fix memory leak in WebSocket handler", project: "Riaura Platform v3.0", priority: "critical", status: "done", due: "Jun 26, 2026", timeLogged: "5h 30m", estimate: "3h", tags: ["bug","backend"], subtasks: 1, done: 1 },
-  { id: 8, title: "Migrate auth service to microservice", project: "Data Warehouse Migration", priority: "high", status: "todo", due: "Jul 20, 2026", timeLogged: "0h", estimate: "12h", tags: ["architecture"], subtasks: 7, done: 0 },
-];
-
-const timesheetData = [
-  { day: "Mon", riaura: 4.5, migration: 2.0, review: 1.5 },
-  { day: "Tue", riaura: 5.0, migration: 1.5, review: 1.0 },
-  { day: "Wed", riaura: 3.5, migration: 3.0, review: 1.5 },
-  { day: "Thu", riaura: 6.0, migration: 0.0, review: 2.0 },
-  { day: "Fri", riaura: 4.0, migration: 2.5, review: 1.5 },
-];
-
-const weeklyHoursData = [
-  { week: "W1 Jun", hours: 38.5, target: 40 },
-  { week: "W2 Jun", hours: 41.0, target: 40 },
-  { week: "W3 Jun", hours: 39.5, target: 40 },
-  { week: "W4 Jun", hours: 36.0, target: 40 },
-  { week: "W1 Jul", hours: 8.0, target: 40 },
-];
-
-const scheduleToday = [
-  { time: "09:00", end: "09:30", title: "Daily Standup", type: "meeting", color: "bg-indigo-500" },
-  { time: "10:00", end: "12:00", title: "Implement OAuth2 — Deep Work", type: "focus", color: "bg-emerald-500" },
-  { time: "12:00", end: "13:00", title: "Lunch Break", type: "break", color: "bg-slate-500" },
-  { time: "13:00", end: "14:00", title: "Code Review Session with James", type: "meeting", color: "bg-violet-500" },
-  { time: "14:00", end: "15:30", title: "Unit Tests — Payment Module", type: "focus", color: "bg-amber-500" },
-  { time: "15:30", end: "16:00", title: "1:1 with Marcus Johnson", type: "meeting", color: "bg-cyan-500" },
-  { time: "16:00", end: "17:30", title: "CI/CD Pipeline Setup", type: "focus", color: "bg-rose-500" },
-  { time: "17:30", end: "18:00", title: "End of Day Review", type: "review", color: "bg-slate-400" },
-];
-
-const myGoals = [
-  { title: "Ship Platform v3.0 Auth Module", progress: 68, due: "Aug 15", category: "Project", status: "on-track" },
-  { title: "Complete AWS Solutions Architect Cert", progress: 45, due: "Sep 30", category: "Learning", status: "on-track" },
-  { title: "Reduce bug rate to <2 per sprint", progress: 80, due: "Jul 31", category: "Quality", status: "on-track" },
-  { title: "Mentor 2 junior engineers", progress: 50, due: "Dec 31", category: "Leadership", status: "at-risk" },
-  { title: "Document all API endpoints (v3)", progress: 100, due: "Jun 28", category: "Docs", status: "completed" },
-];
-
-const timeLogEntries = [
-  { date: "Jun 28", project: "Riaura Platform v3.0", task: "Implement OAuth2 auth flow", hours: "3h 20m", type: "development" },
-  { date: "Jun 28", project: "Riaura Platform v3.0", task: "Daily standup", hours: "0h 30m", type: "meeting" },
-  { date: "Jun 27", project: "Riaura Platform v3.0", task: "Unit tests — payment module", hours: "2h 45m", type: "testing" },
-  { date: "Jun 27", project: "Data Warehouse Migration", task: "Architecture planning", hours: "1h 30m", type: "planning" },
-  { date: "Jun 27", project: "Riaura Platform v3.0", task: "Code review: PR #212", hours: "1h 00m", type: "review" },
-  { date: "Jun 26", project: "Riaura Platform v3.0", task: "Fix memory leak in WebSocket", hours: "5h 30m", type: "development" },
-  { date: "Jun 26", project: "Riaura Platform v3.0", task: "Performance audit", hours: "2h 00m", type: "development" },
-  { date: "Jun 25", project: "Riaura Platform v3.0", task: "API documentation", hours: "4h 00m", type: "docs" },
-];
-
 function MyWorkPage() {
-  const { c, light } = useTheme();
+  const { c } = useTheme();
   const { authUser } = useAuth();
-  const { openModal } = useModal();
-  const col = light ? LIGHT : DARK;
+  const { openModal, activeModal } = useModal();
   const [tab, setTab] = useState("today");
   const [taskView, setTaskView] = useState<"kanban"|"list">("kanban");
-  const [timerActive, setTimerActive] = useState(true);
-  const [timerSeconds, setTimerSeconds] = useState(3 * 3600 + 20 * 60); // 3h 20m
-  const [newTask, setNewTask] = useState("");
-  const [logHours, setLogHours] = useState("");
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [myProjects, setMyProjects] = useState<any[]>([]);
+  const [attendance, setAttendance] = useState<any>(null);
+  const [objectives, setObjectives] = useState<any[]>([]);
+  const [todayEvents, setTodayEvents] = useState<any[]>([]);
+  const [dropError, setDropError] = useState("");
 
+  const loadTasks = () => { if (authUser) fetch(`/api/tasks?assignee=${encodeURIComponent(authUser.name)}`).then(r => r.json()).then(d => setTasks(d.tasks ?? [])); };
   useEffect(() => {
-    if (!timerActive) return;
-    const iv = setInterval(() => setTimerSeconds(s => s + 1), 1000);
-    return () => clearInterval(iv);
-  }, [timerActive]);
+    if (activeModal === "create-task" || activeModal === "task-detail") return;
+    loadTasks();
+  }, [authUser, activeModal]);
 
-  const fmtTimer = (s: number) => {
-    const h = Math.floor(s / 3600).toString().padStart(2, "0");
-    const m = Math.floor((s % 3600) / 60).toString().padStart(2, "0");
-    const sec = (s % 60).toString().padStart(2, "0");
-    return `${h}:${m}:${sec}`;
+  const openTask = (id: number) => openModal("task-detail", { taskId: id });
+  const dropTask = async (taskId: number, status: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task || task.status === status) return;
+    setDropError("");
+    const prev = tasks;
+    setTasks(p => p.map(t => t.id === taskId ? { ...t, status } : t));
+    const res = await fetch(`/api/tasks/${taskId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+    if (!res.ok) {
+      setTasks(prev);
+      const d = await res.json().catch(() => ({}));
+      setDropError(d.error || "Could not update task status.");
+    }
   };
+  useEffect(() => { if (authUser) fetch(`/api/projects?memberName=${encodeURIComponent(authUser.name)}`).then(r => r.json()).then(d => setMyProjects(d.projects ?? [])); }, [authUser]);
+  useEffect(() => { fetch("/api/attendance").then(r => r.json()).then(setAttendance).catch(() => {}); }, []);
+  useEffect(() => {
+    if (activeModal === "add-objective") return;
+    if (authUser) fetch("/api/okr").then(r => r.json()).then(d => setObjectives((d.objectives ?? []).filter((o: any) => o.owner === authUser.name)));
+  }, [authUser, activeModal]);
+  useEffect(() => {
+    const now = new Date();
+    fetch(`/api/calendar?year=${now.getFullYear()}&month=${now.getMonth()+1}`).then(r => r.json()).then(d => setTodayEvents((d.events ?? []).filter((e: any) => e.day === now.getDate())));
+  }, []);
 
   const tabs = [
     { id: "today", label: "Today" },
     { id: "tasks", label: "My Tasks" },
     { id: "projects", label: "Projects" },
-    { id: "timesheet", label: "Timesheet" },
     { id: "goals", label: "Goals" },
     { id: "schedule", label: "Schedule" },
   ];
 
   const taskCols = [
-    { id: "todo", label: "To Do", border: c("border-slate-600", "border-slate-300"), count: myWorkTasks.filter(t => t.status === "todo").length },
-    { id: "in-progress", label: "In Progress", border: "border-indigo-500", count: myWorkTasks.filter(t => t.status === "in-progress").length },
-    { id: "review", label: "Review", border: "border-amber-500", count: myWorkTasks.filter(t => t.status === "review").length },
-    { id: "done", label: "Done", border: "border-emerald-500", count: myWorkTasks.filter(t => t.status === "done").length },
+    { id: "todo", label: "To Do", border: c("border-slate-600","border-slate-300") },
+    { id: "in-progress", label: "In Progress", border: "border-indigo-500" },
+    { id: "review", label: "Review", border: "border-amber-500" },
+    { id: "done", label: "Done", border: "border-emerald-500" },
   ];
 
-  const typeColors: Record<string, string> = {
-    development: "bg-indigo-500/20 text-indigo-500",
-    testing: "bg-emerald-500/20 text-emerald-500",
-    meeting: "bg-violet-500/20 text-violet-500",
-    review: "bg-amber-500/20 text-amber-500",
-    planning: "bg-cyan-500/20 text-cyan-500",
-    docs: "bg-pink-500/20 text-pink-500",
-  };
+  const openTasks = tasks.filter(t => t.status !== "done");
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className={`rounded-2xl border p-6 ${c("bg-gradient-to-r from-indigo-600/20 to-slate-800/60 border-indigo-500/20","bg-gradient-to-r from-indigo-50 to-slate-50 border-indigo-200")}`}>
-        <div className="flex items-start justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-4">
-            <div className={`w-14 h-14 rounded-2xl ${authUser?.avatarColor||"bg-indigo-600"} flex items-center justify-center text-xl font-bold text-white shadow-lg`}>{authUser?.avatar||"SJ"}</div>
-            <div>
-              <h1 className={`text-2xl font-bold ${c("text-white","text-slate-900")}`}>My Work</h1>
-              <p className={`text-sm mt-0.5 ${c("text-slate-400","text-slate-500")}`}>{authUser?.name||"Sanjay Iyer"} · {authUser?.title||"CEO"} · RIAURA Technologies</p>
-              <div className="flex items-center gap-3 mt-2 flex-wrap">
-                <div className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className={`text-xs font-medium ${c("text-emerald-400","text-emerald-600")}`}>Working — In Office</span>
-                </div>
-                <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Sat, Jun 28 2026</span>
+        <div className="flex items-center gap-4">
+          <div className={`w-14 h-14 rounded-2xl ${authUser?.avatarColor || "bg-indigo-600"} flex items-center justify-center text-xl font-bold text-white shadow-lg`}>{authUser?.avatar}</div>
+          <div>
+            <h1 className={`text-2xl font-bold ${c("text-white","text-slate-900")}`}>My Work</h1>
+            <p className={`text-sm mt-0.5 ${c("text-slate-400","text-slate-500")}`}>{authUser?.name} · {authUser?.title}</p>
+            {attendance && (
+              <div className="flex items-center gap-1.5 mt-2">
+                <div className={`w-2 h-2 rounded-full ${attendance.today.punchedIn ? "bg-emerald-500 animate-pulse" : "bg-slate-500"}`} />
+                <span className={`text-xs font-medium ${attendance.today.punchedIn ? c("text-emerald-400","text-emerald-600") : c("text-slate-500","text-slate-400")}`}>{attendance.today.punchedIn ? "Punched In" : "Not Punched In"}</span>
               </div>
-            </div>
-          </div>
-          {/* Live Work Timer */}
-          <div className={`rounded-xl border p-4 min-w-[180px] ${c("bg-slate-800/80 border-white/[0.08]","bg-white border-slate-200")} shadow-sm`}>
-            <p className={`text-[10px] font-semibold uppercase tracking-widest mb-1 ${c("text-slate-500","text-slate-400")}`}>Today's Work Time</p>
-            <div className={`text-3xl font-mono font-bold tracking-tight ${timerActive ? "text-emerald-500" : c("text-slate-400","text-slate-500")}`}>{fmtTimer(timerSeconds)}</div>
-            <div className="flex items-center gap-2 mt-2">
-              <button onClick={() => setTimerActive(v => !v)}
-                className={`flex-1 text-xs py-1.5 rounded-lg font-semibold transition-colors ${timerActive ? "bg-red-600/20 text-red-400 hover:bg-red-600/30" : "bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30"}`}>
-                {timerActive ? "⏸ Pause" : "▶ Resume"}
-              </button>
-              <button className={`text-xs py-1.5 px-2 rounded-lg transition-colors ${c("bg-slate-700 text-slate-400 hover:bg-slate-600","bg-slate-100 text-slate-500 hover:bg-slate-200")}`}>Log</button>
-            </div>
+            )}
           </div>
         </div>
-        {/* Quick Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-5">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-5">
           {[
-            { label: "Tasks Today", value: "4", sub: "2 completed", color: "text-indigo-500", icon: CheckSquare },
-            { label: "Hours Logged", value: "5h 17m", sub: "of 8h target", color: "text-emerald-500", icon: Clock },
-            { label: "Open Tasks", value: "6", sub: "across 2 projects", color: "text-amber-500", icon: AlertCircle },
-            { label: "In Review", value: "1", sub: "awaiting feedback", color: "text-violet-500", icon: Eye },
-            { label: "This Week", value: "32h", sub: "of 40h target", color: "text-cyan-500", icon: BarChart3 },
+            { label: "Open Tasks", value: String(openTasks.length), sub: `${tasks.length} total`, color: "text-amber-500", icon: AlertCircle },
+            { label: "Projects", value: String(myProjects.length), sub: "assigned", color: "text-violet-500", icon: FolderKanban },
+            { label: "Attendance", value: attendance ? `${attendance.monthly.presentDays}/${attendance.monthly.totalRecorded}` : "—", sub: "this month", color: "text-emerald-500", icon: Clock },
           ].map(s => (
             <div key={s.label} className={`rounded-xl p-3 ${c("bg-slate-800/50","bg-white/70")} border ${c("border-white/[0.06]","border-slate-200/80")}`}>
-              <div className="flex items-center justify-between mb-1">
-                <span className={`text-[10px] font-semibold uppercase tracking-wider ${c("text-slate-500","text-slate-400")}`}>{s.label}</span>
-                <s.icon size={13} className={s.color} />
-              </div>
+              <div className="flex items-center justify-between mb-1"><span className={`text-[10px] font-semibold uppercase tracking-wider ${c("text-slate-500","text-slate-400")}`}>{s.label}</span><s.icon size={13} className={s.color} /></div>
               <div className={`text-lg font-bold ${s.color}`}>{s.value}</div>
               <div className={`text-[10px] mt-0.5 ${c("text-slate-600","text-slate-400")}`}>{s.sub}</div>
             </div>
@@ -2738,171 +2276,42 @@ function MyWorkPage() {
         </div>
       </div>
 
-      {/* Tab Nav */}
       <div className="flex items-center gap-1 flex-wrap">
-        {tabs.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t.id ? "bg-indigo-600 text-white" : c("text-slate-400 hover:text-slate-200 hover:bg-slate-800/60","text-slate-500 hover:text-slate-700 hover:bg-slate-100")}`}>
-            {t.label}
-          </button>
-        ))}
+        {tabs.map(t => <button key={t.id} onClick={() => setTab(t.id)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t.id ? "bg-indigo-600 text-white" : c("text-slate-400 hover:text-slate-200 hover:bg-slate-800/60","text-slate-500 hover:text-slate-700 hover:bg-slate-100")}`}>{t.label}</button>)}
       </div>
 
-      {/* TODAY TAB ─────────────────────────────────────────── */}
       {tab === "today" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Left: Schedule */}
-          <div className="lg:col-span-2 space-y-4">
-            <Card className="p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Today's Schedule</h3>
-                <Btn variant="secondary" size="sm" icon={Plus}>Add Event</Btn>
-              </div>
-              <div className="space-y-2">
-                {scheduleToday.map((ev, i) => {
-                  const isNow = ev.time === "10:00"; // simulate current block
-                  return (
-                    <div key={i} className={`flex items-stretch gap-3 group rounded-xl p-3 transition-colors ${isNow ? c("bg-indigo-600/10 border border-indigo-500/30","bg-indigo-50 border border-indigo-200") : c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
-                      <div className="flex flex-col items-end w-14 flex-shrink-0 pt-0.5">
-                        <span className={`text-xs font-semibold ${isNow ? "text-indigo-500" : c("text-slate-400","text-slate-500")}`}>{ev.time}</span>
-                        <span className={`text-[10px] ${c("text-slate-600","text-slate-400")}`}>{ev.end}</span>
-                      </div>
-                      <div className={`w-1 rounded-full flex-shrink-0 ${ev.color}`} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className={`text-sm font-medium ${isNow ? c("text-indigo-300","text-indigo-700") : c("text-slate-200","text-slate-800")}`}>{ev.title}</p>
-                          {isNow && <span className="text-[10px] bg-indigo-600 text-white px-2 py-0.5 rounded-full font-semibold">NOW</span>}
-                        </div>
-                        <span className={`text-[10px] capitalize mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{ev.type}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </Card>
-
-            {/* Priority Tasks for Today */}
-            <Card className="p-5">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Priority Tasks — Today</h3>
-                <div className="flex items-center gap-1.5">
-                  <input value={newTask} onChange={e => setNewTask(e.target.value)} placeholder="Quick add task..."
-                    className={`text-xs border rounded-lg px-3 py-1.5 w-44 focus:outline-none transition-colors ${c("bg-slate-800 border-white/[0.08] text-slate-300 placeholder-slate-600 focus:border-indigo-500/50","bg-white border-slate-200 text-slate-700 placeholder-slate-400 focus:border-indigo-400")}`} />
-                  <Btn variant="primary" size="sm" icon={Plus} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card className="p-5">
+            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Today's Schedule</h3>
+            {todayEvents.length === 0 && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No events scheduled today.</p>}
+            <div className="space-y-2">
+              {todayEvents.map((ev: any, i: number) => (
+                <div key={i} className={`flex items-center gap-3 p-3 rounded-xl ${c("bg-slate-700/20","bg-slate-50")}`}>
+                  <div className={`w-1.5 h-8 rounded-full flex-shrink-0 ${ev.type === "meeting" ? "bg-indigo-500" : ev.type === "deadline" ? "bg-red-500" : "bg-emerald-500"}`}/>
+                  <p className={`text-sm font-medium ${c("text-slate-200","text-slate-800")}`}>{ev.title}</p>
                 </div>
-              </div>
-              <div className="space-y-2">
-                {myWorkTasks.filter(t => t.status !== "done").slice(0, 5).map(task => (
-                  <div key={task.id} className={`flex items-center gap-3 p-3 rounded-xl border transition-colors group ${c("border-white/[0.06] hover:border-white/10 bg-slate-800/40","border-slate-200 hover:border-slate-300 bg-slate-50/60")}`}>
-                    <button className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors ${task.status === "done" ? "bg-emerald-500 border-emerald-500" : c("border-slate-600 hover:border-indigo-400","border-slate-300 hover:border-indigo-400")}`}>
-                      {task.status === "done" && <CheckCircle2 size={12} className="text-white" />}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium truncate ${c("text-slate-200","text-slate-800")}`}>{task.title}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className={`text-[10px] ${c("text-slate-500","text-slate-400")}`}>{task.project}</span>
-                        <span className={`text-[10px] ${c("text-slate-600","text-slate-500")}`}>·</span>
-                        <span className={`text-[10px] ${c("text-slate-500","text-slate-400")}`}>Due {task.due}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <div className={`text-[10px] flex items-center gap-1 ${c("text-slate-500","text-slate-400")}`}>
-                        <Clock size={10} />{task.timeLogged}
-                      </div>
-                      <PriorityBadge priority={task.priority} />
-                    </div>
+              ))}
+            </div>
+          </Card>
+          <Card className="p-5">
+            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Priority Tasks</h3>
+            {openTasks.length === 0 && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No open tasks — nice work!</p>}
+            <div className="space-y-2">
+              {openTasks.slice(0, 5).map((task: any) => (
+                <div key={task.id} onClick={()=>openTask(task.id)} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-colors ${c("border-white/[0.06] bg-slate-800/40 hover:bg-slate-800/60","border-slate-200 bg-slate-50/60 hover:bg-slate-100")}`}>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-medium truncate ${c("text-slate-200","text-slate-800")}`}>{task.title}</p>
+                    <span className={`text-[10px] ${c("text-slate-500","text-slate-400")}`}>{task.project} · Due {task.due}</span>
                   </div>
-                ))}
-              </div>
-            </Card>
-          </div>
-
-          {/* Right column */}
-          <div className="space-y-4">
-            {/* Quick Time Log */}
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Log Time</h3>
-              <div className="space-y-3">
-                <div>
-                  <label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>Task</label>
-                  <select className={`w-full border rounded-lg px-3 py-2 text-xs focus:outline-none ${c("bg-slate-800 border-white/[0.08] text-slate-300","bg-white border-slate-200 text-slate-700")}`}>
-                    {myWorkTasks.filter(t => t.status !== "done").map(t => <option key={t.id}>{t.title.slice(0, 40)}</option>)}
-                  </select>
+                  <PriorityBadge priority={task.priority} />
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>Hours</label>
-                    <input value={logHours} onChange={e => setLogHours(e.target.value)} placeholder="e.g. 2.5" className={`w-full border rounded-lg px-3 py-2 text-xs focus:outline-none ${c("bg-slate-800 border-white/[0.08] text-slate-300 placeholder-slate-600","bg-white border-slate-200 text-slate-700 placeholder-slate-400")}`} />
-                  </div>
-                  <div>
-                    <label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>Type</label>
-                    <select className={`w-full border rounded-lg px-3 py-2 text-xs focus:outline-none ${c("bg-slate-800 border-white/[0.08] text-slate-300","bg-white border-slate-200 text-slate-700")}`}>
-                      {["Development","Testing","Review","Meeting","Planning","Documentation"].map(o => <option key={o}>{o}</option>)}
-                    </select>
-                  </div>
-                </div>
-                <div>
-                  <label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>Notes</label>
-                  <textarea rows={2} placeholder="What did you work on?" className={`w-full border rounded-lg px-3 py-2 text-xs focus:outline-none resize-none ${c("bg-slate-800 border-white/[0.08] text-slate-300 placeholder-slate-600","bg-white border-slate-200 text-slate-700 placeholder-slate-400")}`} />
-                </div>
-                <Btn variant="primary" className="w-full justify-center" size="sm" icon={Plus}>Log Time</Btn>
-              </div>
-            </Card>
-
-            {/* Daily Progress */}
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Daily Progress</h3>
-              <div className="space-y-3">
-                {[
-                  { label: "Tasks Completed", value: 2, total: 4, color: "bg-indigo-500" },
-                  { label: "Hours Logged", value: 5.3, total: 8, color: "bg-emerald-500" },
-                  { label: "Focus Time", value: 3.5, total: 6, color: "bg-violet-500" },
-                ].map(p => (
-                  <div key={p.label}>
-                    <div className="flex justify-between text-xs mb-1.5">
-                      <span className={c("text-slate-400","text-slate-500")}>{p.label}</span>
-                      <span className={`font-semibold ${c("text-slate-300","text-slate-700")}`}>{p.value} / {p.total}</span>
-                    </div>
-                    <ProgressBar value={(p.value / p.total) * 100} color={p.color} />
-                  </div>
-                ))}
-              </div>
-              <div className={`mt-4 pt-4 border-t ${c("border-white/[0.06]","border-slate-100")}`}>
-                <div className="flex items-center justify-between text-xs">
-                  <span className={c("text-slate-500","text-slate-400")}>Productivity Score</span>
-                  <span className="text-emerald-500 font-bold text-base">87%</span>
-                </div>
-                <ProgressBar value={87} color="bg-emerald-500" />
-              </div>
-            </Card>
-
-            {/* Recent Activity */}
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Recent Activity</h3>
-              <div className="space-y-3">
-                {[
-                  { action: "Completed task", detail: "Create API documentation", time: "2h ago", color: "bg-emerald-500" },
-                  { action: "Logged 3h 20m", detail: "OAuth2 auth flow", time: "3h ago", color: "bg-indigo-500" },
-                  { action: "Submitted PR #218", detail: "Memory leak fix in WebSocket", time: "Yesterday", color: "bg-violet-500" },
-                  { action: "Review requested", detail: "Performance audit PR", time: "Yesterday", color: "bg-amber-500" },
-                  { action: "Comment added", detail: "Auth module discussion", time: "2d ago", color: "bg-cyan-500" },
-                ].map((a, i) => (
-                  <div key={i} className="flex items-start gap-2.5">
-                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${a.color}`} />
-                    <div>
-                      <span className={`text-xs font-medium ${c("text-slate-300","text-slate-700")}`}>{a.action}</span>
-                      <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}> — {a.detail}</span>
-                      <p className={`text-[10px] mt-0.5 ${c("text-slate-600","text-slate-400")}`}>{a.time}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
+              ))}
+            </div>
+          </Card>
         </div>
       )}
 
-      {/* MY TASKS TAB ──────────────────────────────────────── */}
       {tab === "tasks" && (
         <div>
           <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
@@ -2911,47 +2320,40 @@ function MyWorkPage() {
                 <button onClick={() => setTaskView("kanban")} className={`w-8 h-8 rounded-lg flex items-center justify-center ${taskView === "kanban" ? "bg-indigo-600 text-white" : c("bg-slate-800/60 text-slate-500","bg-white border border-slate-200 text-slate-500")}`}><GripVertical size={15} /></button>
                 <button onClick={() => setTaskView("list")} className={`w-8 h-8 rounded-lg flex items-center justify-center ${taskView === "list" ? "bg-indigo-600 text-white" : c("bg-slate-800/60 text-slate-500","bg-white border border-slate-200 text-slate-500")}`}><List size={15} /></button>
               </div>
-              <span className={`text-sm ${c("text-slate-400","text-slate-500")}`}>{myWorkTasks.length} tasks total · {myWorkTasks.filter(t => t.status === "done").length} completed</span>
+              <span className={`text-sm ${c("text-slate-400","text-slate-500")}`}>{tasks.length} tasks total · {tasks.filter(t => t.status === "done").length} completed</span>
             </div>
-            <Btn size="sm" icon={Plus} onClick={()=>openModal("create-task")}>New Task</Btn>
+            <Btn size="sm" icon={Plus} onClick={() => openModal("create-task")}>New Task</Btn>
           </div>
-
+          {dropError && <p className="text-xs text-red-400 mb-3">{dropError}</p>}
           {taskView === "kanban" ? (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               {taskCols.map(col => {
-                const colTasks = myWorkTasks.filter(t => t.status === col.id);
+                const colTasks = tasks.filter(t => t.status === col.id);
                 return (
-                  <div key={col.id} className="space-y-3">
-                    <div className="flex items-center gap-2 px-1">
+                  <div key={col.id}>
+                    <div className="flex items-center gap-2 px-1 mb-3">
                       <div className={`w-3 h-3 rounded-sm border-2 ${col.border}`} />
                       <span className={`text-sm font-semibold ${c("text-slate-300","text-slate-700")}`}>{col.label}</span>
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${c("text-slate-600 bg-slate-800","text-slate-500 bg-slate-100")}`}>{col.count}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${c("text-slate-600 bg-slate-800","text-slate-500 bg-slate-100")}`}>{colTasks.length}</span>
                     </div>
-                    {colTasks.map(task => (
-                      <Card key={task.id} className="p-4 cursor-pointer transition-all hover:-translate-y-0.5">
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <p className={`text-xs font-semibold leading-snug ${c("text-slate-200","text-slate-800")}`}>{task.title}</p>
-                          <PriorityBadge priority={task.priority} />
-                        </div>
-                        <p className={`text-[10px] mb-3 ${c("text-slate-500","text-slate-400")}`}>{task.project}</p>
-                        {task.subtasks > 0 && (
-                          <div className="mb-3">
-                            <div className="flex justify-between text-[10px] mb-1">
-                              <span className={c("text-slate-500","text-slate-400")}>Subtasks</span>
-                              <span className={c("text-slate-400","text-slate-500")}>{task.done}/{task.subtasks}</span>
+                    <TaskDropColumn status={col.id} onDropTask={dropTask}>
+                      {colTasks.map(task => (
+                        <DraggableTaskCard key={task.id} task={task} canDrag={canDragTask(task, authUser)} onClick={()=>openTask(task.id)}>
+                          <Card className="p-4">
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <p className={`text-xs font-semibold leading-snug ${c("text-slate-200","text-slate-800")}`}>{task.title}</p>
+                              <PriorityBadge priority={task.priority} />
                             </div>
-                            <ProgressBar value={(task.done / task.subtasks) * 100} />
-                          </div>
-                        )}
-                        <div className="flex items-center gap-1 mb-3 flex-wrap">
-                          {task.tags.map(tag => <span key={tag} className={`text-[9px] px-1.5 py-0.5 rounded ${c("bg-slate-700 text-slate-400","bg-slate-100 text-slate-500")}`}>{tag}</span>)}
-                        </div>
-                        <div className={`flex items-center justify-between pt-2.5 border-t ${c("border-white/[0.06]","border-slate-100")} text-[10px] ${c("text-slate-500","text-slate-400")}`}>
-                          <span className="flex items-center gap-1"><Clock size={10} />{task.timeLogged} / {task.estimate}</span>
-                          <span>Due {task.due}</span>
-                        </div>
-                      </Card>
-                    ))}
+                            <p className={`text-[10px] mb-3 ${c("text-slate-500","text-slate-400")}`}>{task.project}</p>
+                            <div className="flex items-center gap-1 mb-3 flex-wrap">{task.tags.map((tag: string) => <span key={tag} className={`text-[9px] px-1.5 py-0.5 rounded ${c("bg-slate-700 text-slate-400","bg-slate-100 text-slate-500")}`}>{tag}</span>)}</div>
+                            <div className={`flex items-center justify-between pt-2.5 border-t ${c("border-white/[0.06]","border-slate-100")} text-[10px] ${c("text-slate-500","text-slate-400")}`}>
+                              <span>Due {task.due}</span>
+                            </div>
+                            {task.assignedBy && <p className={`text-[9px] mt-2 ${c("text-slate-600","text-slate-400")}`}>Assigned by {task.assignedBy}</p>}
+                          </Card>
+                        </DraggableTaskCard>
+                      ))}
+                    </TaskDropColumn>
                   </div>
                 );
               })}
@@ -2960,30 +2362,15 @@ function MyWorkPage() {
             <Card>
               <div className="overflow-x-auto">
                 <table className="w-full">
-                  <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>
-                    {["Task","Project","Priority","Status","Time Logged","Estimate","Due","Subtasks"].map(h => <th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}
-                  </tr></thead>
+                  <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Task","Project","Priority","Status","Due"].map(h => <th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
                   <tbody>
-                    {myWorkTasks.map(task => (
-                      <tr key={task.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")} cursor-pointer`}>
-                        <td className="px-4 py-3">
-                          <p className={`text-sm font-medium ${c("text-slate-200","text-slate-800")}`}>{task.title}</p>
-                          <div className="flex gap-1 mt-1">{task.tags.map(tag => <span key={tag} className={`text-[9px] px-1.5 py-0.5 rounded ${c("bg-slate-700 text-slate-400","bg-slate-100 text-slate-500")}`}>{tag}</span>)}</div>
-                        </td>
-                        <td className={`px-4 py-3 text-xs ${c("text-slate-400","text-slate-500")}`}>{task.project}</td>
+                    {tasks.map(task => (
+                      <tr key={task.id} onClick={()=>openTask(task.id)} className={`border-b cursor-pointer ${c("border-white/[0.04] hover:bg-slate-700/20","border-slate-100 hover:bg-slate-50")}`}>
+                        <td className={`px-4 py-3 text-sm ${c("text-slate-200","text-slate-800")}`}>{task.title}</td>
+                        <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{task.project}</td>
                         <td className="px-4 py-3"><PriorityBadge priority={task.priority} /></td>
                         <td className="px-4 py-3"><StatusBadge status={task.status} /></td>
-                        <td className={`px-4 py-3 text-sm font-medium ${c("text-slate-300","text-slate-700")}`}>{task.timeLogged}</td>
-                        <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{task.estimate}</td>
                         <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{task.due}</td>
-                        <td className="px-4 py-3">
-                          {task.subtasks > 0 ? (
-                            <div className="flex items-center gap-2 w-24">
-                              <ProgressBar value={(task.done / task.subtasks) * 100} />
-                              <span className={`text-[10px] flex-shrink-0 ${c("text-slate-500","text-slate-400")}`}>{task.done}/{task.subtasks}</span>
-                            </div>
-                          ) : <span className={`text-[10px] ${c("text-slate-600","text-slate-400")}`}>—</span>}
-                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -2994,283 +2381,76 @@ function MyWorkPage() {
         </div>
       )}
 
-      {/* PROJECTS TAB ──────────────────────────────────────── */}
       {tab === "projects" && (
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <p className={`text-sm ${c("text-slate-400","text-slate-500")}`}>Projects you're assigned to</p>
-          </div>
+          {myProjects.length === 0 && <p className={`text-sm ${c("text-slate-400","text-slate-500")}`}>You're not assigned to any projects yet.</p>}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {projects.filter(p => ["Riaura Platform v3.0","Data Warehouse Migration","Security Audit 2026"].includes(p.name)).map(p => (
-              <Card key={p.id} className="p-5 cursor-pointer transition-all hover:-translate-y-0.5">
+            {myProjects.map((p: any) => (
+              <Card key={p.id} className="p-5">
                 <div className="flex items-start justify-between mb-3">
                   <div>
                     <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>{p.name}</h3>
                     <p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{p.manager} · {p.team} team members</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <PriorityBadge priority={p.priority} />
-                    <StatusBadge status={p.status} />
-                  </div>
+                  <div className="flex items-center gap-2"><PriorityBadge priority={p.priority} /><StatusBadge status={p.status} /></div>
                 </div>
                 <ProgressBar value={p.progress} color={p.progress >= 80 ? "bg-emerald-500" : p.progress >= 50 ? "bg-indigo-500" : "bg-amber-500"} />
-                <div className="flex items-center justify-between mt-2 mb-4">
+                <div className="flex items-center justify-between mt-2">
                   <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{p.progress}% complete</span>
                   <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Due {p.deadline}</span>
                 </div>
-                <div className={`grid grid-cols-3 gap-3 pt-3 border-t ${c("border-white/[0.06]","border-slate-100")}`}>
-                  {[["My Tasks", myWorkTasks.filter(t => t.project === p.name).length + " tasks"], ["Logged", myWorkTasks.filter(t => t.project === p.name).reduce((a, t) => a + (parseFloat(t.timeLogged) || 0), 0).toFixed(1) + "h"], ["Budget", `$${(p.spent/1000).toFixed(0)}K / $${(p.budget/1000).toFixed(0)}K`]].map(([l, v]) => (
-                    <div key={l as string} className="text-center">
-                      <div className={`text-xs font-semibold ${c("text-white","text-slate-900")}`}>{v}</div>
-                      <div className={`text-[10px] ${c("text-slate-500","text-slate-400")}`}>{l}</div>
-                    </div>
-                  ))}
-                </div>
               </Card>
             ))}
           </div>
         </div>
       )}
 
-      {/* TIMESHEET TAB ─────────────────────────────────────── */}
-      {tab === "timesheet" && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="flex items-center gap-2">
-              <button className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-400 hover:bg-slate-700","text-slate-500 hover:bg-slate-100")}`}><ChevronLeft size={15} /></button>
-              <span className={`text-sm font-semibold ${c("text-slate-200","text-slate-800")}`}>Week of Jun 23 – Jun 27, 2026</span>
-              <button className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-400 hover:bg-slate-700","text-slate-500 hover:bg-slate-100")}`}><ChevronRight size={15} /></button>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`text-sm font-semibold text-emerald-500`}>32h logged</span>
-              <Btn variant="primary" size="sm">Submit Timesheet</Btn>
-            </div>
-          </div>
-
-          {/* Weekly Summary Chart */}
-          <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Weekly Hours by Project</h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={timesheetData}>
-                <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid} />
-                <XAxis dataKey="day" tick={{ fill: col.tickColor, fontSize: 11 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: col.tickColor, fontSize: 11 }} axisLine={false} tickLine={false} domain={[0, 10]} />
-                <Tooltip content={(p: any) => <ChartTip {...p} light={light} />} />
-                <Legend wrapperStyle={{ fontSize: 11, color: col.tickColor }} />
-                <Bar key="ts-riaura" dataKey="riaura" name="Platform v3.0" stackId="a" fill="#4F46E5" radius={[0, 0, 0, 0]} />
-                <Bar key="ts-migration" dataKey="migration" name="Data Migration" stackId="a" fill="#22C55E" radius={[0, 0, 0, 0]} />
-                <Bar key="ts-review" dataKey="review" name="Reviews" stackId="a" fill="#F59E0B" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </Card>
-
-          {/* Timesheet Grid */}
-          <Card className="overflow-hidden">
-            <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}>
-              <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Weekly Timesheet</h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>
-                  <th className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")} w-48`}>Project / Task</th>
-                  {["Mon","Tue","Wed","Thu","Fri"].map(d => <th key={d} className={`text-center text-xs font-semibold px-3 py-3 w-20 ${c("text-slate-500","text-slate-400")}`}>{d}</th>)}
-                  <th className={`text-center text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>Total</th>
-                </tr></thead>
-                <tbody>
-                  {[
-                    { project: "Riaura Platform v3.0", task: "OAuth2 Auth Flow", hours: [1.5, 2.0, 0, 3.0, 1.5] },
-                    { project: "Riaura Platform v3.0", task: "Unit Tests — Payment", hours: [1.5, 1.5, 1.5, 1.0, 0] },
-                    { project: "Riaura Platform v3.0", task: "CI/CD Pipeline", hours: [1.5, 1.5, 0, 2.0, 1.5] },
-                    { project: "Data Warehouse Migration", task: "Architecture Planning", hours: [2.0, 1.5, 3.0, 0, 2.5] },
-                    { project: "Code Reviews", task: "PR Reviews", hours: [1.5, 1.0, 1.5, 2.0, 1.5] },
-                  ].map((row, i) => {
-                    const total = row.hours.reduce((a, b) => a + b, 0);
-                    return (
-                      <tr key={i} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
-                        <td className="px-4 py-3">
-                          <p className={`text-xs font-medium ${c("text-slate-200","text-slate-800")}`}>{row.task}</p>
-                          <p className={`text-[10px] ${c("text-slate-500","text-slate-400")}`}>{row.project}</p>
-                        </td>
-                        {row.hours.map((h, j) => (
-                          <td key={j} className="px-3 py-3 text-center">
-                            {h > 0 ? (
-                              <span className={`text-xs font-medium px-2 py-1 rounded-md ${c("bg-indigo-600/20 text-indigo-400","bg-indigo-50 text-indigo-600")}`}>{h}h</span>
-                            ) : <span className={`text-xs ${c("text-slate-700","text-slate-300")}`}>—</span>}
-                          </td>
-                        ))}
-                        <td className={`px-4 py-3 text-center text-sm font-bold ${c("text-white","text-slate-900")}`}>{total}h</td>
-                      </tr>
-                    );
-                  })}
-                  {/* Totals row */}
-                  <tr className={`${c("bg-slate-800/50","bg-slate-50")} font-semibold`}>
-                    <td className={`px-4 py-3 text-xs font-bold ${c("text-slate-300","text-slate-700")}`}>Daily Total</td>
-                    {[8.0, 7.5, 6.0, 8.0, 7.0].map((t, i) => (
-                      <td key={i} className={`px-3 py-3 text-center text-sm font-bold ${t >= 8 ? "text-emerald-500" : t >= 6 ? "text-amber-500" : "text-red-500"}`}>{t}h</td>
-                    ))}
-                    <td className={`px-4 py-3 text-center text-sm font-bold text-emerald-500`}>36.5h</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </Card>
-
-          {/* Time Log */}
-          <Card>
-            <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")} flex items-center justify-between`}>
-              <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Recent Time Entries</h3>
-              <Btn variant="secondary" size="sm" icon={Plus}>Log Time</Btn>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>
-                  {["Date","Project","Task","Hours","Type","Actions"].map(h => <th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}
-                </tr></thead>
-                <tbody>
-                  {timeLogEntries.map((entry, i) => (
-                    <tr key={i} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
-                      <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{entry.date}</td>
-                      <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{entry.project}</td>
-                      <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")} max-w-xs truncate`}>{entry.task}</td>
-                      <td className={`px-4 py-3 text-sm font-semibold ${c("text-white","text-slate-900")}`}>{entry.hours}</td>
-                      <td className="px-4 py-3"><span className={`text-[10px] px-2 py-1 rounded-full font-medium ${typeColors[entry.type] || "bg-slate-500/20 text-slate-400"}`}>{entry.type}</span></td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-1">
-                          <button className={`w-6 h-6 rounded flex items-center justify-center ${c("text-slate-500 hover:text-slate-300 hover:bg-slate-700","text-slate-400 hover:text-slate-600 hover:bg-slate-100")}`}><Edit2 size={11} /></button>
-                          <button className={`w-6 h-6 rounded flex items-center justify-center ${c("text-slate-500 hover:text-red-400 hover:bg-slate-700","text-slate-400 hover:text-red-500 hover:bg-slate-100")}`}><Trash2 size={11} /></button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {/* GOALS TAB ─────────────────────────────────────────── */}
       {tab === "goals" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between mb-2">
-            <p className={`text-sm ${c("text-slate-400","text-slate-500")}`}>Personal goals and OKR alignment for Q3 2026</p>
-            <Btn size="sm" icon={Plus}>Add Goal</Btn>
+            <p className={`text-sm ${c("text-slate-400","text-slate-500")}`}>Objectives you own</p>
+            <Btn size="sm" icon={Plus} onClick={() => openModal("add-objective")}>Add Objective</Btn>
           </div>
-
-          {/* Goal Cards */}
+          {objectives.length === 0 && <p className={`text-sm ${c("text-slate-500","text-slate-400")}`}>No objectives assigned to you yet.</p>}
           <div className="space-y-3">
-            {myGoals.map((goal, i) => (
-              <Card key={i} className="p-5">
-                <div className="flex items-start justify-between gap-4 flex-wrap">
-                  <div className="flex items-start gap-4 flex-1 min-w-0">
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${goal.status === "completed" ? "bg-emerald-500/20" : goal.status === "on-track" ? "bg-indigo-500/20" : "bg-amber-500/20"}`}>
-                      <Target size={18} className={goal.status === "completed" ? "text-emerald-500" : goal.status === "on-track" ? "text-indigo-500" : "text-amber-500"} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h4 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>{goal.title}</h4>
-                        <Badge variant="default">{goal.category}</Badge>
-                        <StatusBadge status={goal.status} />
-                      </div>
-                      <p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>Due {goal.due} · Q3 2026</p>
-                      <div className="flex items-center gap-3 mt-3">
-                        <div className="flex-1 max-w-xs">
-                          <ProgressBar value={goal.progress} color={goal.status === "completed" ? "bg-emerald-500" : goal.status === "on-track" ? "bg-indigo-500" : "bg-amber-500"} />
-                        </div>
-                        <span className={`text-sm font-bold ${goal.status === "completed" ? "text-emerald-500" : goal.status === "on-track" ? "text-indigo-500" : "text-amber-500"}`}>{goal.progress}%</span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-500 hover:text-slate-300 hover:bg-slate-700","text-slate-400 hover:text-slate-600 hover:bg-slate-100")}`}><Edit2 size={13} /></button>
-                  </div>
+            {objectives.map((goal: any) => (
+              <Card key={goal.id} className="p-5">
+                <div className="flex items-center gap-2 flex-wrap mb-2">
+                  <h4 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>{goal.title}</h4>
+                  <Badge variant="default">{goal.quarter}</Badge>
                 </div>
-              </Card>
-            ))}
-          </div>
-
-          {/* Goals Summary */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-            {[
-              { label: "On Track", count: myGoals.filter(g => g.status === "on-track").length, color: "text-emerald-500", bg: c("bg-emerald-500/10","bg-emerald-50") },
-              { label: "At Risk", count: myGoals.filter(g => g.status === "at-risk").length, color: "text-amber-500", bg: c("bg-amber-500/10","bg-amber-50") },
-              { label: "Completed", count: myGoals.filter(g => g.status === "completed").length, color: "text-indigo-500", bg: c("bg-indigo-500/10","bg-indigo-50") },
-              { label: "Avg Progress", count: `${Math.round(myGoals.reduce((a, g) => a + g.progress, 0) / myGoals.length)}%`, color: "text-violet-500", bg: c("bg-violet-500/10","bg-violet-50") },
-            ].map(s => (
-              <Card key={s.label} className={`p-4 ${s.bg}`}>
-                <div className={`text-2xl font-bold ${s.color}`}>{s.count}</div>
-                <div className={`text-xs mt-1 ${c("text-slate-400","text-slate-500")}`}>{s.label}</div>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 max-w-xs"><ProgressBar value={goal.progress} color="bg-indigo-500" /></div>
+                  <span className="text-sm font-bold text-indigo-500">{goal.progress}%</span>
+                </div>
+                <div className="mt-3 space-y-1.5">
+                  {goal.krs.map((kr: any, i: number) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <StatusBadge status={kr.status}/>
+                      <span className={c("text-slate-400","text-slate-500")}>{kr.title}</span>
+                      <span className={`ml-auto ${c("text-slate-500","text-slate-400")}`}>{kr.progress}%</span>
+                    </div>
+                  ))}
+                </div>
               </Card>
             ))}
           </div>
         </div>
       )}
 
-      {/* SCHEDULE TAB ──────────────────────────────────────── */}
       {tab === "schedule" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Weekly Calendar */}
-          <Card className="lg:col-span-2 p-5">
-            <div className="flex items-center justify-between mb-5">
-              <h3 className={`font-semibold ${c("text-white","text-slate-900")}`}>Week of Jun 23 – Jun 28, 2026</h3>
-              <div className="flex gap-1">
-                <button className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-400 hover:bg-slate-700","text-slate-500 hover:bg-slate-100")}`}><ChevronLeft size={15} /></button>
-                <button className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-400 hover:bg-slate-700","text-slate-500 hover:bg-slate-100")}`}><ChevronRight size={15} /></button>
+        <Card className="p-5">
+          <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Today's Events</h3>
+          {todayEvents.length === 0 && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Nothing on your calendar today.</p>}
+          <div className="space-y-2">
+            {todayEvents.map((ev: any, i: number) => (
+              <div key={i} className={`flex items-center gap-3 p-3 rounded-xl ${c("bg-slate-700/20","bg-slate-50")}`}>
+                <div className={`w-2 h-10 rounded-full flex-shrink-0 ${ev.type === "meeting" ? "bg-indigo-500" : ev.type === "deadline" ? "bg-red-500" : "bg-emerald-500"}`} />
+                <p className={`text-sm font-medium ${c("text-slate-200","text-slate-800")}`}>{ev.title}</p>
               </div>
-            </div>
-            <div className="grid grid-cols-6 gap-2 mb-3">
-              <div /> {/* Time column header */}
-              {["Mon 23","Tue 24","Wed 25","Thu 26","Fri 27","Sat 28"].map((d, i) => (
-                <div key={d} className={`text-center text-xs font-semibold py-2 rounded-lg ${i === 5 ? "bg-indigo-600/20 text-indigo-400" : c("text-slate-500","text-slate-500")}`}>{d}</div>
-              ))}
-            </div>
-            <div className="space-y-1.5">
-              {["09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00"].map((time, ti) => (
-                <div key={time} className="grid grid-cols-6 gap-2 items-center">
-                  <div className={`text-[10px] text-right pr-2 ${c("text-slate-600","text-slate-400")}`}>{time}</div>
-                  {[0, 1, 2, 3, 4, 5].map(di => {
-                    const ev = di === 5 ? scheduleToday.find(e => e.time === time) : null;
-                    return (
-                      <div key={di} className={`h-9 rounded-lg text-[10px] flex items-center justify-center overflow-hidden ${ev ? `${ev.color} text-white font-medium px-1 text-center` : c("bg-slate-800/30","bg-slate-100/50")}`}>
-                        {ev ? <span className="truncate px-1">{ev.title.split("—")[0].trim()}</span> : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          {/* Right: Upcoming + Availability */}
-          <div className="space-y-4">
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Upcoming This Week</h3>
-              <div className="space-y-3">
-                {scheduleToday.filter(e => e.type === "meeting").map((ev, i) => (
-                  <div key={i} className={`flex items-center gap-3 p-3 rounded-xl ${c("bg-slate-700/20","bg-slate-50")}`}>
-                    <div className={`w-2 h-10 rounded-full flex-shrink-0 ${ev.color}`} />
-                    <div>
-                      <p className={`text-xs font-semibold ${c("text-slate-200","text-slate-800")}`}>{ev.title}</p>
-                      <p className={`text-[10px] mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{ev.time} — {ev.end} · Today</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Availability Settings</h3>
-              <div className="space-y-3">
-                {[["Work Hours", "9:00 AM – 6:00 PM"], ["Timezone", "America/Los_Angeles"], ["Days Off", "Sat & Sun"], ["Focus Time", "10:00–12:00 AM"]].map(([l, v]) => (
-                  <div key={l} className={`flex items-center justify-between p-2.5 rounded-lg ${c("bg-slate-700/20","bg-slate-50")}`}>
-                    <span className={`text-xs ${c("text-slate-400","text-slate-500")}`}>{l}</span>
-                    <span className={`text-xs font-semibold ${c("text-slate-200","text-slate-700")}`}>{v}</span>
-                  </div>
-                ))}
-                <Btn variant="secondary" size="sm" icon={Edit2} className="w-full justify-center">Edit Availability</Btn>
-              </div>
-            </Card>
+            ))}
           </div>
-        </div>
+        </Card>
       )}
     </div>
   );
@@ -3290,128 +2470,44 @@ const roleConfig: Record<UserRole, { icon: React.ElementType; color: string; bg:
 
 function LoginPage() {
   const { login } = useAuth();
-  const [selectedRole, setSelectedRole] = useState<UserRole>("super-admin");
-  const [email, setEmail]     = useState("sanjay.iyer@riaura.com");
-  const [password, setPassword] = useState("Admin@2026");
+  const [email, setEmail]     = useState("");
+  const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [error, setError]     = useState("");
   const [loading, setLoading] = useState(false);
   const [remember, setRemember] = useState(true);
-
-  const pickAccount = (acc: AuthUser) => {
-    setSelectedRole(acc.role);
-    setEmail(acc.email);
-    setPassword(acc.password);
-    setError("");
-  };
 
   const handleLogin = async () => {
     setError("");
     if (!email.trim()) { setError("Email is required."); return; }
     if (!password.trim()) { setError("Password is required."); return; }
     setLoading(true);
-    await new Promise(r => setTimeout(r, 900));
-    const acc = demoAccounts.find(a => a.email.toLowerCase() === email.toLowerCase() && a.password === password);
-    if (!acc) { setLoading(false); setError("Invalid credentials. Check the demo accounts below."); return; }
-    setLoading(false);
-    login(acc);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Invalid credentials."); return; }
+      login(data.user);
+    } catch {
+      setError("Could not reach the server. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="min-h-screen flex" style={{ background: "#060D1F", fontFamily: "'Inter',-apple-system,sans-serif" }}>
-      {/* ── Left branding panel ── */}
-      <div className="hidden lg:flex flex-col justify-between w-[52%] p-12 relative overflow-hidden"
-        style={{ background: "linear-gradient(135deg,#0B1020 0%,#111827 50%,#0B1020 100%)" }}>
-        {/* Grid decoration */}
-        <div className="absolute inset-0 opacity-[0.03]"
-          style={{ backgroundImage: "linear-gradient(rgba(255,255,255,0.5) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.5) 1px,transparent 1px)", backgroundSize: "40px 40px" }} />
-        {/* Glow */}
-        <div className="absolute top-32 left-32 w-72 h-72 bg-indigo-600/20 rounded-full blur-[80px]" />
-        <div className="absolute bottom-32 right-16 w-56 h-56 bg-violet-600/15 rounded-full blur-[60px]" />
-
-        <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-16">
-            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/40">
-              <Layers size={20} className="text-white" />
-            </div>
-            <span className="text-xl font-bold text-white tracking-tight">RIAURA</span>
-            <span className="text-xs bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 px-2 py-0.5 rounded-full ml-1">Work OS</span>
-          </div>
-
-          <h1 className="text-4xl font-bold text-white leading-tight mb-4">
-            Enterprise HRMS<br/>
-            <span className="text-indigo-400">built for teams</span><br/>
-            that move fast.
-          </h1>
-          <p className="text-slate-400 text-base leading-relaxed max-w-sm">
-            One platform for HR, projects, payroll, performance, and AI-powered insights. Trusted by 1,200+ people at RIAURA Technologies.
-          </p>
-
-          <div className="grid grid-cols-2 gap-3 mt-10">
-            {[
-              { icon: Users, label: "1,248 Employees", sub: "Across 8 departments" },
-              { icon: FolderKanban, label: "42 Active Projects", sub: "Tracked in real-time" },
-              { icon: BarChart3, label: "AI-Powered Insights", sub: "Smart HR analytics" },
-              { icon: ShieldCheck, label: "Role-Based Access", sub: "7 permission levels" },
-            ].map(f => (
-              <div key={f.label} className="flex items-start gap-3 p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                <div className="w-8 h-8 rounded-lg bg-indigo-600/20 flex items-center justify-center flex-shrink-0">
-                  <f.icon size={15} className="text-indigo-400" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold text-white">{f.label}</p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">{f.sub}</p>
-                </div>
-              </div>
-            ))}
-          </div>
+    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: "#060D1F", fontFamily: "'Inter',-apple-system,sans-serif" }}>
+      <div className="w-full max-w-md">
+        <div className="flex items-center gap-2 mb-8 justify-center">
+          <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center"><Layers size={16} className="text-white"/></div>
+          <span className="text-base font-bold text-white">RIAURA Work OS</span>
         </div>
 
-        <div className="relative z-10">
-          <div className="flex -space-x-2 mb-3">
-            {demoAccounts.slice(0, 6).map(a => (
-              <div key={a.id} className={`w-8 h-8 rounded-full ${a.avatarColor} border-2 border-[#0B1020] flex items-center justify-center text-[10px] font-bold text-white`}>{a.avatar}</div>
-            ))}
-          </div>
-          <p className="text-xs text-slate-500">"The most complete Work OS we've ever used."</p>
-        </div>
-      </div>
-
-      {/* ── Right login panel ── */}
-      <div className="flex-1 flex items-center justify-center p-6 overflow-y-auto">
-        <div className="w-full max-w-md">
-          {/* Mobile logo */}
-          <div className="flex items-center gap-2 mb-8 lg:hidden">
-            <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center"><Layers size={16} className="text-white"/></div>
-            <span className="text-base font-bold text-white">RIAURA Work OS</span>
-          </div>
-
-          <h2 className="text-2xl font-bold text-white mb-1">Sign in to your workspace</h2>
-          <p className="text-slate-400 text-sm mb-7">Select your role and enter credentials below</p>
-
-          {/* Role selector */}
-          <div className="mb-6">
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">Select Role</p>
-            <div className="grid grid-cols-2 gap-2">
-              {(Object.entries(roleConfig) as [UserRole, typeof roleConfig[UserRole]][]).map(([role, cfg]) => {
-                const acc = demoAccounts.find(a => a.role === role);
-                return (
-                  <button key={role} onClick={() => acc && pickAccount(acc)}
-                    className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all ${selectedRole === role ? `${cfg.bg} border-opacity-100` : "border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]"}`}>
-                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 ${selectedRole === role ? cfg.bg : "bg-slate-800"}`}>
-                      <cfg.icon size={14} className={selectedRole === role ? cfg.color : "text-slate-500"} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className={`text-xs font-semibold truncate ${selectedRole === role ? "text-white" : "text-slate-400"}`}>
-                        {demoAccounts.find(a => a.role === role)?.roleLabel}
-                      </p>
-                      <p className={`text-[9px] truncate ${selectedRole === role ? "text-slate-300" : "text-slate-600"}`}>{cfg.desc}</p>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+        <h2 className="text-2xl font-bold text-white mb-1 text-center">Sign in to your workspace</h2>
+          <p className="text-slate-400 text-sm mb-7">Enter your credentials below</p>
 
           {/* Form */}
           <div className="space-y-4">
@@ -3469,35 +2565,9 @@ function LoginPage() {
             </button>
           </div>
 
-          {/* Demo credentials table */}
-          <div className="mt-8 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Demo Credentials — Click to Auto-fill</p>
-            <div className="space-y-1.5">
-              {demoAccounts.map(acc => {
-                const cfg = roleConfig[acc.role];
-                const isActive = email === acc.email;
-                return (
-                  <button key={acc.id} onClick={() => pickAccount(acc)}
-                    className={`w-full flex items-center gap-3 p-2.5 rounded-xl transition-colors text-left ${isActive ? "bg-indigo-600/15 border border-indigo-500/25" : "hover:bg-white/[0.03]"}`}>
-                    <div className={`w-7 h-7 rounded-full ${acc.avatarColor} flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0`}>{acc.avatar}</div>
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-xs font-semibold truncate ${isActive ? "text-white" : "text-slate-300"}`}>{acc.name}</p>
-                      <p className={`text-[10px] truncate ${isActive ? "text-slate-400" : "text-slate-600"}`}>{acc.email}</p>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${cfg.bg} ${cfg.color}`}>{acc.roleLabel}</span>
-                      <p className={`text-[10px] mt-0.5 font-mono ${isActive ? "text-slate-400" : "text-slate-600"}`}>{acc.password}</p>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
           <p className="text-center text-[11px] text-slate-700 mt-5">
             RIAURA Work OS · Enterprise Edition · v3.0.0
           </p>
-        </div>
       </div>
     </div>
   );
@@ -3517,9 +2587,10 @@ function FInput({ value, onChange, placeholder, type = "text", className = "" }:
 }
 
 function FSelect({ value, onChange, children, className = "" }: { value: string; onChange: (v: string) => void; children: React.ReactNode; className?: string }) {
-  const { c } = useTheme();
+  const { c, light } = useTheme();
   return <select value={value} onChange={e => onChange(e.target.value)}
-    className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none transition-colors ${c("bg-slate-800/60 border-white/[0.08] text-slate-200 focus:border-indigo-500/50","bg-white border-slate-200 text-slate-800 focus:border-indigo-400")} ${className}`}>
+    style={{ colorScheme: light ? "light" : "dark" }}
+    className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none transition-colors ${c("bg-slate-800 border-white/[0.08] text-slate-200 focus:border-indigo-500/50","bg-white border-slate-200 text-slate-800 focus:border-indigo-400")} ${className}`}>
     {children}
   </select>;
 }
@@ -3555,21 +2626,58 @@ function SuccessBanner({ message }: { message: string }) {
 
 // ─── MODALS ───────────────────────────────────────────────────────────────────
 
+// Shared real-data lookups for the create/edit modals below (dropdowns for
+// manager, team lead, assignee, owner, department, etc.).
+function useEmployeeDirectory() {
+  const [list, setList] = useState<any[]>([]);
+  useEffect(() => { fetch("/api/employees").then(r => r.json()).then(d => setList(d.employees ?? [])); }, []);
+  return list;
+}
+function useDepartmentDirectory() {
+  const [list, setList] = useState<any[]>([]);
+  useEffect(() => { fetch("/api/departments").then(r => r.json()).then(d => setList(d.departments ?? [])); }, []);
+  return list;
+}
+
 function AddEmployeeModal({ onClose }: { onClose: () => void }) {
   const { c } = useTheme();
   const [step, setStep] = useState(1);
   const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const employees = useEmployeeDirectory();
+  const departments = useDepartmentDirectory();
+  const [submitError, setSubmitError] = useState("");
   const [f, setF] = useState({
     firstName: "", lastName: "", email: "", phone: "", dob: "", gender: "Male", nationality: "American",
-    dept: "Engineering", jobTitle: "", roleLevel: "employee", empType: "Full-time", workLoc: "Hybrid",
-    manager: "James Wilson", startDate: "", probationEnd: "",
+    dept: "", jobTitle: "", roleLevel: "employee", empType: "Full-time", workLoc: "Hybrid",
+    manager: "", startDate: "", probationEnd: "",
     salary: "", payFreq: "Monthly", currency: "USD", annualLeave: "24", sickLeave: "12",
   });
   const set = (k: string, v: string) => setF(prev => ({ ...prev, [k]: v }));
 
   const stepLabels = ["Personal Info", "Employment", "Compensation"];
-  const deptList = ["Engineering","Product","Design","Analytics","Marketing","HR","Finance","Sales"];
-  const managerList = employees.map(e => e.name);
+  const deptList = departments.map((d: any) => d.name);
+  const managerList = employees.map((e: any) => e.name);
+
+  const handleCreate = async () => {
+    if (!(f.firstName && f.email && f.jobTitle)) return;
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const res = await fetch("/api/employees", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(f),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSubmitError(data.error || "Could not create employee."); return; }
+      setDone(true);
+    } catch {
+      setSubmitError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (done) return (
     <ModalOverlay title="Add Employee" onClose={onClose}>
@@ -3624,7 +2732,7 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
       {step === 2 && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-            <div><FieldLabel label="Department" required/><FSelect value={f.dept} onChange={v => set("dept",v)}>{deptList.map(d => <option key={d}>{d}</option>)}</FSelect></div>
+            <div><FieldLabel label="Department" required/><FSelect value={f.dept} onChange={v => set("dept",v)}><option value="">Select department...</option>{deptList.map((d: string) => <option key={d}>{d}</option>)}</FSelect></div>
             <div><FieldLabel label="Job Title" required/><FInput value={f.jobTitle} onChange={v => set("jobTitle",v)} placeholder="e.g. Senior Engineer"/></div>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -3633,7 +2741,7 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div><FieldLabel label="Work Location"/><FSelect value={f.workLoc} onChange={v => set("workLoc",v)}><option>On-site</option><option>Remote</option><option>Hybrid</option></FSelect></div>
-            <div><FieldLabel label="Reporting Manager"/><FSelect value={f.manager} onChange={v => set("manager",v)}>{managerList.map(m => <option key={m}>{m}</option>)}</FSelect></div>
+            <div><FieldLabel label="Reporting Manager"/><FSelect value={f.manager} onChange={v => set("manager",v)}><option value="">None</option>{managerList.map((m: string) => <option key={m}>{m}</option>)}</FSelect></div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div><FieldLabel label="Start Date" required/><FInput value={f.startDate} onChange={v => set("startDate",v)} type="date"/></div>
@@ -3665,11 +2773,12 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
+      {submitError && <p className="text-xs text-red-400 mt-3">{submitError}</p>}
       <div className="flex items-center justify-between mt-6 pt-4 border-t border-white/[0.06]">
         <Btn variant="secondary" onClick={() => step > 1 ? setStep(s => s-1) : onClose()}>{step > 1 ? "← Back" : "Cancel"}</Btn>
         {step < 3
           ? <Btn variant="primary" onClick={() => setStep(s => s+1)} icon={ChevronRight}>Next Step</Btn>
-          : <Btn variant="primary" onClick={() => { if (f.firstName && f.email && f.jobTitle) setDone(true); }}>Create Employee</Btn>
+          : <Btn variant="primary" onClick={handleCreate}>{submitting ? "Creating..." : "Create Employee"}</Btn>
         }
       </div>
     </ModalOverlay>
@@ -3679,9 +2788,33 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
 function AddDepartmentModal({ onClose }: { onClose: () => void }) {
   const { c } = useTheme();
   const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const employees = useEmployeeDirectory();
+  const departments = useDepartmentDirectory();
+  const [submitError, setSubmitError] = useState("");
   const [f, setF] = useState({ name: "", head: "", parent: "None", desc: "", code: "", budget: "", color: "bg-indigo-500" });
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
   const colors = ["bg-indigo-500","bg-emerald-500","bg-violet-500","bg-amber-500","bg-rose-500","bg-cyan-500","bg-pink-500","bg-teal-500"];
+
+  const handleCreate = async () => {
+    if (!(f.name && f.head)) return;
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const res = await fetch("/api/departments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(f),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSubmitError(data.error || "Could not create department."); return; }
+      setDone(true);
+    } catch {
+      setSubmitError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (done) return (
     <ModalOverlay title="Add Department" onClose={onClose}>
@@ -3707,8 +2840,9 @@ function AddDepartmentModal({ onClose }: { onClose: () => void }) {
           <FieldLabel label="Department Color"/>
           <div className="flex gap-2 mt-1">{colors.map(col => <button key={col} onClick={() => set("color",col)} className={`w-7 h-7 rounded-full ${col} transition-transform ${f.color === col ? "scale-125 ring-2 ring-white/40" : "hover:scale-110"}`}/>)}</div>
         </div>
+        {submitError && <p className="text-xs text-red-400">{submitError}</p>}
         <div className="flex gap-2 pt-2">
-          <Btn variant="primary" icon={Plus} onClick={() => { if (f.name && f.head) setDone(true); }}>Create Department</Btn>
+          <Btn variant="primary" icon={Plus} onClick={handleCreate}>{submitting ? "Creating..." : "Create Department"}</Btn>
           <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
         </div>
       </div>
@@ -3719,10 +2853,34 @@ function AddDepartmentModal({ onClose }: { onClose: () => void }) {
 function CreateTeamModal({ onClose }: { onClose: () => void }) {
   const { c } = useTheme();
   const [done, setDone] = useState(false);
-  const [f, setF] = useState({ name: "", dept: "Engineering", lead: "", desc: "", type: "Engineering", goals: "" });
-  const [selected, setSelected] = useState<number[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const employees = useEmployeeDirectory();
+  const departments = useDepartmentDirectory();
+  const [submitError, setSubmitError] = useState("");
+  const [f, setF] = useState({ name: "", dept: "", lead: "", desc: "", type: "Engineering", goals: "" });
+  const [selected, setSelected] = useState<string[]>([]);
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
-  const toggle = (id: number) => setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  const toggle = (name: string) => setSelected(prev => prev.includes(name) ? prev.filter(x => x !== name) : [...prev, name]);
+
+  const handleCreate = async () => {
+    if (!(f.name && f.lead)) return;
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const res = await fetch("/api/teams", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...f, memberNames: selected }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSubmitError(data.error || "Could not create team."); return; }
+      setDone(true);
+    } catch {
+      setSubmitError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (done) return (
     <ModalOverlay title="Create Team" onClose={onClose}>
@@ -3748,16 +2906,17 @@ function CreateTeamModal({ onClose }: { onClose: () => void }) {
           <FieldLabel label={`Add Members (${selected.length} selected)`}/>
           <div className={`max-h-48 overflow-y-auto rounded-xl border ${c("border-white/[0.08]","border-slate-200")} divide-y ${c("divide-white/[0.04]","divide-slate-100")}`}>
             {employees.map(e => (
-              <label key={e.id} className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${selected.includes(e.id) ? c("bg-indigo-600/10","bg-indigo-50") : c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
-                <input type="checkbox" checked={selected.includes(e.id)} onChange={() => toggle(e.id)} className="rounded accent-indigo-500"/>
+              <label key={e.id} className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors ${selected.includes(e.name) ? c("bg-indigo-600/10","bg-indigo-50") : c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
+                <input type="checkbox" checked={selected.includes(e.name)} onChange={() => toggle(e.name)} className="rounded accent-indigo-500"/>
                 <Avatar initials={e.avatar} color={e.avatarColor} size="sm"/>
                 <div className="flex-1"><p className={`text-sm font-medium ${c("text-slate-200","text-slate-800")}`}>{e.name}</p><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{e.role} · {e.dept}</p></div>
               </label>
             ))}
           </div>
         </div>
+        {submitError && <p className="text-xs text-red-400">{submitError}</p>}
         <div className="flex gap-2 pt-2">
-          <Btn variant="primary" icon={Plus} onClick={() => { if (f.name && f.lead) setDone(true); }}>Create Team</Btn>
+          <Btn variant="primary" icon={Plus} onClick={handleCreate}>{submitting ? "Creating..." : "Create Team"}</Btn>
           <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
         </div>
       </div>
@@ -3768,12 +2927,36 @@ function CreateTeamModal({ onClose }: { onClose: () => void }) {
 function CreateProjectModal({ onClose }: { onClose: () => void }) {
   const { c } = useTheme();
   const [done, setDone] = useState(false);
-  const [f, setF] = useState({ name: "", code: "PROJ-009", client: "", dept: "Engineering", manager: "", priority: "high", status: "planning", desc: "", startDate: "", deadline: "", budget: "" });
-  const [members, setMembers] = useState<number[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const employees = useEmployeeDirectory();
+  const departments = useDepartmentDirectory();
+  const [submitError, setSubmitError] = useState("");
+  const [f, setF] = useState({ name: "", code: "PROJ-009", client: "", dept: "", manager: "", priority: "high", status: "planning", desc: "", startDate: "", deadline: "", budget: "" });
+  const [members, setMembers] = useState<string[]>([]);
   const [milestones, setMilestones] = useState([{ title: "", date: "" }, { title: "", date: "" }]);
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
-  const toggle = (id: number) => setMembers(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id]);
+  const toggle = (name: string) => setMembers(p => p.includes(name) ? p.filter(x => x !== name) : [...p, name]);
   const priorityOpts = [{ v: "critical", label: "Critical", color: "text-red-400" }, { v: "high", label: "High", color: "text-amber-400" }, { v: "medium", label: "Medium", color: "text-indigo-400" }, { v: "low", label: "Low", color: "text-slate-400" }];
+
+  const handleCreate = async () => {
+    if (!(f.name && f.manager)) return;
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...f, memberNames: members, milestones }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSubmitError(data.error || "Could not create project."); return; }
+      setDone(true);
+    } catch {
+      setSubmitError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (done) return (
     <ModalOverlay title="Create Project" onClose={onClose}>
@@ -3821,8 +3004,8 @@ function CreateProjectModal({ onClose }: { onClose: () => void }) {
           <FieldLabel label={`Team Members (${members.length} selected)`}/>
           <div className={`max-h-40 overflow-y-auto rounded-xl border ${c("border-white/[0.08]","border-slate-200")} divide-y ${c("divide-white/[0.04]","divide-slate-100")}`}>
             {employees.map(e => (
-              <label key={e.id} className={`flex items-center gap-3 px-4 py-2 cursor-pointer transition-colors ${members.includes(e.id) ? c("bg-indigo-600/10","bg-indigo-50") : c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
-                <input type="checkbox" checked={members.includes(e.id)} onChange={() => toggle(e.id)} className="rounded accent-indigo-500"/>
+              <label key={e.id} className={`flex items-center gap-3 px-4 py-2 cursor-pointer transition-colors ${members.includes(e.name) ? c("bg-indigo-600/10","bg-indigo-50") : c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
+                <input type="checkbox" checked={members.includes(e.name)} onChange={() => toggle(e.name)} className="rounded accent-indigo-500"/>
                 <Avatar initials={e.avatar} color={e.avatarColor} size="sm"/>
                 <span className={`text-sm ${c("text-slate-200","text-slate-700")}`}>{e.name}</span>
                 <span className={`ml-auto text-xs ${c("text-slate-500","text-slate-400")}`}>{e.dept}</span>
@@ -3830,8 +3013,9 @@ function CreateProjectModal({ onClose }: { onClose: () => void }) {
             ))}
           </div>
         </div>
+        {submitError && <p className="text-xs text-red-400">{submitError}</p>}
         <div className="flex gap-2 pt-2">
-          <Btn variant="primary" icon={Plus} onClick={() => { if (f.name && f.manager) setDone(true); }}>Create Project</Btn>
+          <Btn variant="primary" icon={Plus} onClick={handleCreate}>{submitting ? "Creating..." : "Create Project"}</Btn>
           <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
         </div>
       </div>
@@ -3842,13 +3026,42 @@ function CreateProjectModal({ onClose }: { onClose: () => void }) {
 function CreateTaskModal({ onClose }: { onClose: () => void }) {
   const { c } = useTheme();
   const [done, setDone] = useState(false);
-  const [f, setF] = useState({ title: "", project: "Riaura Platform v3.0", assignee: "", priority: "high", status: "todo", dueDate: "", estimate: "", desc: "", tagInput: "" });
+  const [submitting, setSubmitting] = useState(false);
+  const employees = useEmployeeDirectory();
+  const [submitError, setSubmitError] = useState("");
+  const [f, setF] = useState({ title: "", project: "", assignee: "", priority: "high", status: "todo", dueDate: "", estimate: "", desc: "", tagInput: "" });
   const [tags, setTags] = useState<string[]>([]);
-  const [subtasks, setSubtasks] = useState(["", ""]);
+  const [projectList, setProjectList] = useState<string[]>([]);
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
   const addTag = () => { if (f.tagInput.trim()) { setTags(p => [...p, f.tagInput.trim()]); set("tagInput", ""); }};
-  const projectList = projects.map(p => p.name);
+  useEffect(() => {
+    fetch("/api/projects").then(r => r.json()).then(d => {
+      const names = (d.projects ?? []).map((p: any) => p.name);
+      setProjectList(names);
+      if (names.length) set("project", names[0]);
+    });
+  }, []);
   const priorityOpts = ["critical","high","medium","low"];
+
+  const handleCreate = async () => {
+    if (!(f.title && f.project)) return;
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...f, tags }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSubmitError(data.error || "Could not create task."); return; }
+      setDone(true);
+    } catch {
+      setSubmitError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (done) return (
     <ModalOverlay title="Create Task" onClose={onClose}>
@@ -3880,15 +3093,181 @@ function CreateTaskModal({ onClose }: { onClose: () => void }) {
           <div className="flex gap-2 mb-2">{tags.map(t => <span key={t} className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-full ${c("bg-slate-700 text-slate-300","bg-slate-100 text-slate-600")}`}>{t}<button onClick={() => setTags(p => p.filter(x => x !== t))} className="ml-0.5 opacity-60 hover:opacity-100"><X size={11}/></button></span>)}</div>
           <div className="flex gap-2"><FInput value={f.tagInput} onChange={v => set("tagInput",v)} placeholder="Add tag..." className="flex-1" /><Btn variant="secondary" size="sm" onClick={addTag}>Add</Btn></div>
         </div>
-        <div>
-          <FieldLabel label="Subtasks"/>
-          <div className="space-y-2">{subtasks.map((st, i) => <FInput key={i} value={st} onChange={v => setSubtasks(p => p.map((x, j) => j === i ? v : x))} placeholder={`Subtask ${i+1}`}/>)}</div>
-          <button onClick={() => setSubtasks(p => [...p, ""])} className="text-xs text-indigo-500 mt-2 hover:text-indigo-400">+ Add subtask</button>
-        </div>
+        {submitError && <p className="text-xs text-red-400">{submitError}</p>}
         <div className="flex gap-2 pt-2">
-          <Btn variant="primary" icon={Plus} onClick={() => { if (f.title && f.project) setDone(true); }}>Create Task</Btn>
+          <Btn variant="primary" icon={Plus} onClick={handleCreate}>{submitting ? "Creating..." : "Create Task"}</Btn>
           <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
         </div>
+      </div>
+    </ModalOverlay>
+  );
+}
+
+function TaskDetailModal({ onClose }: { onClose: () => void }) {
+  const { c } = useTheme();
+  const { authUser } = useAuth();
+  const { modalData } = useModal();
+  const employees = useEmployeeDirectory();
+  const [task, setTask] = useState<any>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [comment, setComment] = useState("");
+  const [editing, setEditing] = useState(false);
+  const [edit, setEdit] = useState({ title: "", desc: "", priority: "", dueDate: "", estimate: "", assignee: "" });
+
+  const load = () => fetch(`/api/tasks/${modalData.taskId}`).then(r => r.json()).then(d => {
+    if (d.task) setTask(d.task);
+  });
+  useEffect(() => { load(); }, [modalData?.taskId]);
+
+  if (!task) return <ModalOverlay title="Loading..." onClose={onClose}><div className="h-20"/></ModalOverlay>;
+
+  const isAssignee = authUser?.id === task.assignee?.id;
+  const isAssigner = authUser?.id === task.assignedBy?.id;
+  const isAdmin = authUser?.role === "super-admin";
+  const canEditFull = isAssigner || isAdmin;
+  const canChangeStatus = isAssignee || canEditFull;
+
+  const statusOpts = [["todo","To Do"],["in-progress","In Progress"],["review","In Review"],["done","Done"]];
+
+  const changeStatus = async (status: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/tasks/${task.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+      const d = await res.json();
+      if (!res.ok) { setError(d.error || "Could not update status."); return; }
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startEdit = () => {
+    setEdit({ title: task.title, desc: task.description || "", priority: task.priority, dueDate: "", estimate: task.estimateHours != null ? String(task.estimateHours) : "", assignee: task.assignee?.name || "" });
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: edit.title, desc: edit.desc, priority: edit.priority, estimate: edit.estimate, assignee: edit.assignee, ...(edit.dueDate ? { dueDate: edit.dueDate } : {}) }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setError(d.error || "Could not save changes."); return; }
+      setEditing(false);
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addComment = async () => {
+    if (!comment.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/comments`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content: comment }) });
+      const d = await res.json();
+      if (!res.ok) { setError(d.error || "Could not post comment."); return; }
+      setComment("");
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteTask = async () => {
+    if (!window.confirm("Delete this task? This cannot be undone.")) return;
+    setBusy(true);
+    try {
+      await fetch(`/api/tasks/${task.id}`, { method: "DELETE" });
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <ModalOverlay title={editing ? "Edit Task" : task.title} subtitle={task.project || undefined} onClose={onClose} size="lg">
+      <div className="space-y-4">
+        {editing ? (
+          <>
+            <div><FieldLabel label="Title" required/><FInput value={edit.title} onChange={v => setEdit(p => ({ ...p, title: v }))}/></div>
+            <div><FieldLabel label="Description"/><FTextarea value={edit.desc} onChange={v => setEdit(p => ({ ...p, desc: v }))}/></div>
+            <div className="grid grid-cols-3 gap-4">
+              <div><FieldLabel label="Priority"/><FSelect value={edit.priority} onChange={v => setEdit(p => ({ ...p, priority: v }))}>{["critical","high","medium","low"].map(p => <option key={p}>{p}</option>)}</FSelect></div>
+              <div><FieldLabel label="Due Date"/><FInput value={edit.dueDate} onChange={v => setEdit(p => ({ ...p, dueDate: v }))} type="date" placeholder={task.due}/></div>
+              <div><FieldLabel label="Estimate (hrs)"/><FInput value={edit.estimate} onChange={v => setEdit(p => ({ ...p, estimate: v }))}/></div>
+            </div>
+            <div><FieldLabel label="Assignee"/><FSelect value={edit.assignee} onChange={v => setEdit(p => ({ ...p, assignee: v }))}><option value="">Unassigned</option>{employees.map(e => <option key={e.id}>{e.name}</option>)}</FSelect></div>
+            {error && <p className="text-xs text-red-400">{error}</p>}
+            <div className="flex gap-2"><Btn variant="primary" onClick={saveEdit} disabled={busy}>Save</Btn><Btn variant="secondary" onClick={()=>setEditing(false)}>Cancel</Btn></div>
+          </>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 flex-wrap"><PriorityBadge priority={task.priority}/><StatusBadge status={task.status}/>{task.tags.map((t:string)=><span key={t} className={`text-[10px] px-1.5 py-0.5 rounded ${c("bg-slate-700 text-slate-400","bg-slate-100 text-slate-500")}`}>{t}</span>)}</div>
+            {task.description && <p className={`text-sm ${c("text-slate-300","text-slate-700")}`}>{task.description}</p>}
+            <div className="grid grid-cols-2 gap-4">
+              <div className={`p-3 rounded-lg ${c("bg-slate-800/50","bg-slate-50")}`}>
+                <p className={`text-[10px] uppercase tracking-wide mb-1.5 ${c("text-slate-500","text-slate-400")}`}>Assigned to</p>
+                {task.assignee ? <div className="flex items-center gap-2"><Avatar initials={task.assignee.avatar} color={task.assignee.color} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{task.assignee.name}</span></div> : <span className={`text-sm ${c("text-slate-500","text-slate-400")}`}>Unassigned</span>}
+              </div>
+              <div className={`p-3 rounded-lg ${c("bg-slate-800/50","bg-slate-50")}`}>
+                <p className={`text-[10px] uppercase tracking-wide mb-1.5 ${c("text-slate-500","text-slate-400")}`}>Assigned by</p>
+                {task.assignedBy ? <div className="flex items-center gap-2"><Avatar initials={task.assignedBy.avatar} color={task.assignedBy.color} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{task.assignedBy.name}</span></div> : <span className={`text-sm ${c("text-slate-500","text-slate-400")}`}>—</span>}
+              </div>
+            </div>
+            <div className="flex items-center gap-4 text-xs">
+              {task.due && <span className={c("text-slate-400","text-slate-500")}>Due {task.due}</span>}
+              {task.estimateHours != null && <span className={c("text-slate-400","text-slate-500")}>Est. {task.estimateHours}h</span>}
+            </div>
+
+            <div>
+              <p className={`text-[10px] uppercase tracking-wide mb-1.5 ${c("text-slate-500","text-slate-400")}`}>Status</p>
+              <div className="flex gap-2 flex-wrap">
+                {statusOpts.map(([id,label]) => (
+                  <button key={id} disabled={!canChangeStatus || busy || id===task.status} onClick={()=>changeStatus(id)} className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-50 ${id===task.status ? "bg-indigo-600 text-white border-indigo-500" : c("border-white/[0.08] text-slate-400 hover:border-white/20","border-slate-200 text-slate-500 hover:border-slate-300")}`}>{label}</button>
+                ))}
+              </div>
+              {!canChangeStatus && <p className={`text-[10px] mt-1.5 ${c("text-slate-500","text-slate-400")}`}>Only the assignee, assigner, or an admin can change status.</p>}
+            </div>
+
+            {error && <p className="text-xs text-red-400">{error}</p>}
+            {canEditFull && <div className="flex gap-2"><Btn variant="secondary" size="sm" icon={Edit2} onClick={startEdit}>Edit</Btn><Btn variant="danger" size="sm" icon={Trash2} onClick={deleteTask}>Delete</Btn></div>}
+
+            <div className={`border-t pt-4 ${c("border-white/[0.06]","border-slate-200")}`}>
+              <p className={`text-xs font-semibold mb-2 ${c("text-slate-300","text-slate-700")}`}>Activity</p>
+              <div className="space-y-2 max-h-32 overflow-y-auto mb-4">
+                {task.activity.map((a:any) => (
+                  <p key={a.id} className={`text-[11px] ${c("text-slate-500","text-slate-400")}`}><strong className={c("text-slate-300","text-slate-600")}>{a.actor}</strong> {a.action==="status_changed"?`changed status: ${a.detail}`:a.action==="reassigned"?a.detail:a.action==="commented"?"commented":a.detail||a.action} · {a.time}</p>
+                ))}
+              </div>
+
+              <p className={`text-xs font-semibold mb-2 ${c("text-slate-300","text-slate-700")}`}>Comments</p>
+              <div className="space-y-3 max-h-48 overflow-y-auto mb-3">
+                {task.comments.length===0 && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No comments yet.</p>}
+                {task.comments.map((cm:any) => (
+                  <div key={cm.id} className="flex items-start gap-2">
+                    <Avatar initials={cm.avatar} color={cm.color} size="sm"/>
+                    <div className="flex-1">
+                      <div className="flex items-baseline gap-2"><span className={`text-xs font-semibold ${c("text-slate-200","text-slate-800")}`}>{cm.author}</span><span className={`text-[10px] ${c("text-slate-600","text-slate-400")}`}>{cm.time}</span></div>
+                      <p className={`text-xs ${c("text-slate-300","text-slate-600")}`}>{cm.content}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <FInput value={comment} onChange={setComment} placeholder="Add a comment..." className="flex-1"/>
+                <Btn variant="primary" size="sm" onClick={addComment} disabled={busy}>Post</Btn>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </ModalOverlay>
   );
@@ -3897,11 +3276,34 @@ function CreateTaskModal({ onClose }: { onClose: () => void }) {
 function CreateEventModal({ onClose }: { onClose: () => void }) {
   const { c } = useTheme();
   const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const employees = useEmployeeDirectory();
+  const [submitError, setSubmitError] = useState("");
   const [f, setF] = useState({ title: "", date: "", startTime: "09:00", endTime: "10:00", allDay: false, type: "meeting", color: "bg-indigo-500", desc: "", location: "", link: "", recurring: false, freq: "weekly", endDate: "" });
-  const [attendees, setAttendees] = useState<number[]>([]);
+  const [attendees, setAttendees] = useState<string[]>([]);
   const set = (k: string, v: any) => setF(p => ({ ...p, [k]: v }));
   const eventTypes = ["meeting","focus","event","deadline","holiday"];
   const colors = ["bg-indigo-500","bg-emerald-500","bg-violet-500","bg-amber-500","bg-rose-500","bg-cyan-500"];
+
+  const handleCreate = async () => {
+    if (!(f.title && f.date)) return;
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const res = await fetch("/api/calendar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...f, attendeeNames: attendees }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSubmitError(data.error || "Could not create event."); return; }
+      setDone(true);
+    } catch {
+      setSubmitError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (done) return (
     <ModalOverlay title="Create Event" onClose={onClose}>
@@ -3937,11 +3339,12 @@ function CreateEventModal({ onClose }: { onClose: () => void }) {
         <div>
           <FieldLabel label={`Attendees (${attendees.length})`}/>
           <div className={`max-h-36 overflow-y-auto rounded-xl border ${c("border-white/[0.08]","border-slate-200")}`}>
-            {employees.map(e => <label key={e.id} className={`flex items-center gap-3 px-4 py-2 cursor-pointer ${attendees.includes(e.id) ? c("bg-indigo-600/10","bg-indigo-50") : c("hover:bg-slate-700/20","hover:bg-slate-50")}`}><input type="checkbox" checked={attendees.includes(e.id)} onChange={() => setAttendees(p => p.includes(e.id) ? p.filter(x=>x!==e.id) : [...p,e.id])} className="rounded accent-indigo-500"/><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-700")}`}>{e.name}</span></label>)}
+            {employees.map(e => <label key={e.id} className={`flex items-center gap-3 px-4 py-2 cursor-pointer ${attendees.includes(e.name) ? c("bg-indigo-600/10","bg-indigo-50") : c("hover:bg-slate-700/20","hover:bg-slate-50")}`}><input type="checkbox" checked={attendees.includes(e.name)} onChange={() => setAttendees(p => p.includes(e.name) ? p.filter(x=>x!==e.name) : [...p,e.name])} className="rounded accent-indigo-500"/><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-700")}`}>{e.name}</span></label>)}
           </div>
         </div>
+        {submitError && <p className="text-xs text-red-400">{submitError}</p>}
         <div className="flex gap-2 pt-2">
-          <Btn variant="primary" icon={Plus} onClick={() => { if (f.title && f.date) setDone(true); }}>Create Event</Btn>
+          <Btn variant="primary" icon={Plus} onClick={handleCreate}>{submitting ? "Creating..." : "Create Event"}</Btn>
           <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
         </div>
       </div>
@@ -3953,9 +3356,32 @@ function ScheduleMeetingModal({ onClose }: { onClose: () => void }) {
   const { c } = useTheme();
   const { authUser } = useAuth();
   const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const employees = useEmployeeDirectory();
+  const [submitError, setSubmitError] = useState("");
   const [f, setF] = useState({ title: "", date: "", startTime: "10:00", endTime: "11:00", type: "video", gmeetLink: "", room: "", agenda: "", recurrence: "none", sendInvites: true, record: false });
-  const [attendees, setAttendees] = useState<number[]>([]);
+  const [attendees, setAttendees] = useState<string[]>([]);
   const set = (k: string, v: any) => setF(p => ({ ...p, [k]: v }));
+
+  const handleCreate = async () => {
+    if (!(f.title && f.date)) return;
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const res = await fetch("/api/meetings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...f, attendeeNames: attendees }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSubmitError(data.error || "Could not schedule meeting."); return; }
+      setDone(true);
+    } catch {
+      setSubmitError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const generateMeetLink = () => {
     const chars = "abcdefghijklmnopqrstuvwxyz";
@@ -3980,7 +3406,7 @@ function ScheduleMeetingModal({ onClose }: { onClose: () => void }) {
             <button onClick={copyLink} className={`text-xs px-2 py-1 rounded ${c("bg-slate-700 text-slate-300 hover:bg-slate-600","bg-white text-slate-600 hover:bg-slate-100")} border ${c("border-white/[0.08]","border-slate-200")}`}><Copy size={12}/></button>
           </div>
         )}
-        <div className="flex items-center gap-1 flex-wrap">{attendees.slice(0,6).map(id => { const e = employees.find(x=>x.id===id); return e ? <div key={id} className={`w-7 h-7 rounded-full ${e.avatarColor} flex items-center justify-center text-[9px] font-bold text-white border-2 ${c("border-slate-800","border-white")} -ml-1 first:ml-0`}>{e.avatar}</div> : null; })}{attendees.length > 6 && <span className={`text-xs ${c("text-slate-500","text-slate-400")} ml-1`}>+{attendees.length-6}</span>}</div>
+        <div className="flex items-center gap-1 flex-wrap">{attendees.slice(0,6).map(name => { const e = employees.find(x=>x.name===name); return e ? <div key={name} className={`w-7 h-7 rounded-full ${e.avatarColor} flex items-center justify-center text-[9px] font-bold text-white border-2 ${c("border-slate-800","border-white")} -ml-1 first:ml-0`}>{e.avatar}</div> : null; })}{attendees.length > 6 && <span className={`text-xs ${c("text-slate-500","text-slate-400")} ml-1`}>+{attendees.length-6}</span>}</div>
       </div>
       <Btn variant="primary" onClick={onClose} className="mt-4">Done</Btn>
     </ModalOverlay>
@@ -4020,7 +3446,7 @@ function ScheduleMeetingModal({ onClose }: { onClose: () => void }) {
         <div>
           <FieldLabel label={`Invite Attendees (${attendees.length} selected)`}/>
           <div className={`max-h-40 overflow-y-auto rounded-xl border ${c("border-white/[0.08]","border-slate-200")}`}>
-            {employees.map(e => <label key={e.id} className={`flex items-center gap-3 px-4 py-2 cursor-pointer transition-colors ${attendees.includes(e.id) ? c("bg-indigo-600/10","bg-indigo-50") : c("hover:bg-slate-700/20","hover:bg-slate-50")}`}><input type="checkbox" checked={attendees.includes(e.id)} onChange={() => setAttendees(p => p.includes(e.id) ? p.filter(x=>x!==e.id) : [...p,e.id])} className="rounded accent-indigo-500"/><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-700")}`}>{e.name}</span><span className={`ml-auto text-xs ${c("text-slate-500","text-slate-400")}`}>{e.dept}</span></label>)}
+            {employees.map(e => <label key={e.id} className={`flex items-center gap-3 px-4 py-2 cursor-pointer transition-colors ${attendees.includes(e.name) ? c("bg-indigo-600/10","bg-indigo-50") : c("hover:bg-slate-700/20","hover:bg-slate-50")}`}><input type="checkbox" checked={attendees.includes(e.name)} onChange={() => setAttendees(p => p.includes(e.name) ? p.filter(x=>x!==e.name) : [...p,e.name])} className="rounded accent-indigo-500"/><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-700")}`}>{e.name}</span><span className={`ml-auto text-xs ${c("text-slate-500","text-slate-400")}`}>{e.dept}</span></label>)}
           </div>
         </div>
 
@@ -4035,11 +3461,12 @@ function ScheduleMeetingModal({ onClose }: { onClose: () => void }) {
 
         <div className={`flex items-center gap-2 p-3 rounded-lg ${c("bg-slate-800/50","bg-slate-50")}`}>
           <User size={13} className={c("text-slate-500","text-slate-400")}/>
-          <span className={`text-xs ${c("text-slate-400","text-slate-500")}`}>Organizer: <strong className={c("text-slate-200","text-slate-700")}>{authUser?.name || "Sanjay Iyer"}</strong></span>
+          <span className={`text-xs ${c("text-slate-400","text-slate-500")}`}>Organizer: <strong className={c("text-slate-200","text-slate-700")}>{authUser?.name || "You"}</strong></span>
         </div>
 
+        {submitError && <p className="text-xs text-red-400">{submitError}</p>}
         <div className="flex gap-2 pt-2">
-          <Btn variant="primary" icon={Video} onClick={() => { if (f.title && f.date) setDone(true); }}>Schedule Meeting</Btn>
+          <Btn variant="primary" icon={Video} onClick={handleCreate}>{submitting ? "Scheduling..." : "Schedule Meeting"}</Btn>
           <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
         </div>
       </div>
@@ -4050,11 +3477,38 @@ function ScheduleMeetingModal({ onClose }: { onClose: () => void }) {
 function ApplyLeaveModal({ onClose }: { onClose: () => void }) {
   const { c } = useTheme();
   const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [f, setF] = useState({ type: "Annual Leave", from: "", to: "", halfDay: false, halfDayPart: "Morning", reason: "", emergencyName: "", emergencyPhone: "" });
   const set = (k: string, v: any) => setF(p => ({ ...p, [k]: v }));
-  const leaveBalance: Record<string,number> = { "Annual Leave": 16, "Sick Leave": 10, "Casual Leave": 3, "Maternity/Paternity Leave": 90, "Unpaid Leave": 999 };
+  const [leaveBalance, setLeaveBalance] = useState<Record<string,number>>({});
+  useEffect(() => {
+    fetch("/api/leave").then(r => r.json()).then(d => {
+      if (Array.isArray(d.balances)) setLeaveBalance(Object.fromEntries(d.balances.map((b: any) => [b.type, b.remaining])));
+    });
+  }, []);
   const calcDays = () => { if (!f.from || !f.to) return 0; const d = (new Date(f.to).getTime() - new Date(f.from).getTime()) / 86400000 + 1; return f.halfDay ? 0.5 : Math.max(0, d); };
   const days = calcDays();
+
+  const handleSubmit = async () => {
+    if (!(f.type && f.from && f.to && f.reason)) return;
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const res = await fetch("/api/leave", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(f),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSubmitError(data.error || "Could not submit leave request."); return; }
+      setDone(true);
+    } catch {
+      setSubmitError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (done) return (
     <ModalOverlay title="Leave Applied" onClose={onClose}>
@@ -4073,7 +3527,7 @@ function ApplyLeaveModal({ onClose }: { onClose: () => void }) {
           </FSelect>
           <div className={`flex items-center justify-between mt-1.5 px-1`}>
             <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Balance remaining</span>
-            <span className="text-xs font-semibold text-emerald-500">{leaveBalance[f.type]} days available</span>
+            <span className="text-xs font-semibold text-emerald-500">{leaveBalance[f.type] ?? "—"} days available</span>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-4">
@@ -4105,8 +3559,9 @@ function ApplyLeaveModal({ onClose }: { onClose: () => void }) {
             <FInput value={f.emergencyPhone} onChange={v => set("emergencyPhone",v)} placeholder="+1 (555) 000-0000"/>
           </div>
         </div>
+        {submitError && <p className="text-xs text-red-400">{submitError}</p>}
         <div className="flex gap-2 pt-2">
-          <Btn variant="primary" onClick={() => { if (f.type && f.from && f.to && f.reason) setDone(true); }}>Submit Application</Btn>
+          <Btn variant="primary" onClick={handleSubmit}>{submitting ? "Submitting..." : "Submit Application"}</Btn>
           <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
         </div>
       </div>
@@ -4117,11 +3572,34 @@ function ApplyLeaveModal({ onClose }: { onClose: () => void }) {
 function StartReviewCycleModal({ onClose }: { onClose: () => void }) {
   const { c } = useTheme();
   const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const departments = useDepartmentDirectory();
+  const [submitError, setSubmitError] = useState("");
   const [f, setF] = useState({ name: "Q3 2026 Performance Review", quarter: "Q3", year: "2026", reviewType: "360", ratingScale: "1-5", anonymousPeer: true, autoRemind: true, remindDays: "3", template: "Engineering Standard", kickoff: "", selfDeadline: "", managerDeadline: "", resultsDate: "" });
   const [depts, setDepts] = useState<string[]>(["Engineering","Product","Design"]);
   const set = (k: string, v: any) => setF(p => ({ ...p, [k]: v }));
   const allDepts = departments.map(d => d.name);
   const toggleDept = (d: string) => setDepts(p => p.includes(d) ? p.filter(x=>x!==d) : [...p,d]);
+
+  const handleLaunch = async () => {
+    if (!(f.name && f.selfDeadline && depts.length > 0)) return;
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const res = await fetch("/api/performance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...f, departments: depts }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSubmitError(data.error || "Could not start review cycle."); return; }
+      setDone(true);
+    } catch {
+      setSubmitError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (done) return (
     <ModalOverlay title="Review Cycle Started" onClose={onClose} size="lg">
@@ -4177,10 +3655,122 @@ function StartReviewCycleModal({ onClose }: { onClose: () => void }) {
             </label>
           ))}
         </div>
+        {submitError && <p className="text-xs text-red-400">{submitError}</p>}
         <div className="flex gap-2 pt-2">
-          <Btn variant="primary" icon={Play} onClick={() => { if (f.name && f.selfDeadline && depts.length > 0) setDone(true); }}>Launch Review Cycle</Btn>
-          <Btn variant="secondary" onClick={onClose}>Save as Draft</Btn>
+          <Btn variant="primary" icon={Play} onClick={handleLaunch}>{submitting ? "Launching..." : "Launch Review Cycle"}</Btn>
           <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </ModalOverlay>
+  );
+}
+
+function AddObjectiveModal({ onClose }: { onClose: () => void }) {
+  const { c } = useTheme();
+  const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const employees = useEmployeeDirectory();
+  const [submitError, setSubmitError] = useState("");
+  const [f, setF] = useState({ title: "", owner: "", quarter: "Q1", year: String(new Date().getFullYear()) });
+  const [krs, setKrs] = useState(["", ""]);
+  const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
+
+  const handleCreate = async () => {
+    if (!f.title) return;
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const res = await fetch("/api/okr", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...f, keyResults: krs }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSubmitError(data.error || "Could not create objective."); return; }
+      setDone(true);
+    } catch {
+      setSubmitError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (done) return (
+    <ModalOverlay title="Objective Created" onClose={onClose}>
+      <SuccessBanner message={`"${f.title}" has been added to the OKR tracker.`}/>
+      <Btn variant="primary" onClick={onClose}>Done</Btn>
+    </ModalOverlay>
+  );
+
+  return (
+    <ModalOverlay title="Add Objective" subtitle="Define a new objective and its key results" onClose={onClose} size="lg">
+      <div className="space-y-4">
+        <div><FieldLabel label="Objective Title" required/><FInput value={f.title} onChange={v => set("title",v)} placeholder="e.g. Scale platform to 10M users"/></div>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="col-span-1"><FieldLabel label="Owner"/><FSelect value={f.owner} onChange={v => set("owner",v)}><option value="">Unassigned</option>{employees.map(e => <option key={e.id}>{e.name}</option>)}</FSelect></div>
+          <div><FieldLabel label="Quarter"/><FSelect value={f.quarter} onChange={v => set("quarter",v)}><option>Q1</option><option>Q2</option><option>Q3</option><option>Q4</option></FSelect></div>
+          <div><FieldLabel label="Year"/><FInput value={f.year} onChange={v => set("year",v)}/></div>
+        </div>
+        <div>
+          <FieldLabel label="Key Results"/>
+          <div className="space-y-2">{krs.map((kr, i) => <FInput key={i} value={kr} onChange={v => setKrs(p => p.map((x, j) => j === i ? v : x))} placeholder={`Key Result ${i+1}`}/>)}</div>
+          <button onClick={() => setKrs(p => [...p, ""])} className="text-xs text-indigo-500 mt-2 hover:text-indigo-400">+ Add key result</button>
+        </div>
+        {submitError && <p className="text-xs text-red-400">{submitError}</p>}
+        <div className="flex gap-2 pt-2">
+          <Btn variant="primary" icon={Plus} onClick={handleCreate}>{submitting ? "Creating..." : "Create Objective"}</Btn>
+          <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </ModalOverlay>
+  );
+}
+
+function AddArticleModal({ onClose }: { onClose: () => void }) {
+  const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [f, setF] = useState({ title: "", category: "Engineering", content: "" });
+  const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
+  const categories = ["Engineering","HR Policies","Product","Onboarding","Finance","Security"];
+
+  const handleCreate = async () => {
+    if (!f.title) return;
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const res = await fetch("/api/knowledge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(f),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSubmitError(data.error || "Could not publish article."); return; }
+      setDone(true);
+    } catch {
+      setSubmitError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (done) return (
+    <ModalOverlay title="Article Published" onClose={onClose}>
+      <SuccessBanner message={`"${f.title}" has been published to the Knowledge Base.`}/>
+      <Btn variant="primary" onClick={onClose}>Done</Btn>
+    </ModalOverlay>
+  );
+
+  return (
+    <ModalOverlay title="New Article" subtitle="Publish a document, SOP, or company resource" onClose={onClose} size="lg">
+      <div className="space-y-4">
+        <div><FieldLabel label="Title" required/><FInput value={f.title} onChange={v => set("title",v)} placeholder="e.g. Remote Work Policy 2026"/></div>
+        <div><FieldLabel label="Category" required/><FSelect value={f.category} onChange={v => set("category",v)}>{categories.map(c => <option key={c}>{c}</option>)}</FSelect></div>
+        <div><FieldLabel label="Content"/><FTextarea value={f.content} onChange={v => set("content",v)} placeholder="Article body..." rows={6}/></div>
+        {submitError && <p className="text-xs text-red-400">{submitError}</p>}
+        <div className="flex gap-2 pt-2">
+          <Btn variant="primary" icon={Plus} onClick={handleCreate}>{submitting ? "Publishing..." : "Publish Article"}</Btn>
+          <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
         </div>
       </div>
     </ModalOverlay>
@@ -4197,10 +3787,13 @@ function ModalSystem() {
       {activeModal === "create-team" && <CreateTeamModal onClose={closeModal}/>}
       {activeModal === "create-project" && <CreateProjectModal onClose={closeModal}/>}
       {activeModal === "create-task" && <CreateTaskModal onClose={closeModal}/>}
+      {activeModal === "task-detail" && <TaskDetailModal onClose={closeModal}/>}
       {activeModal === "create-event" && <CreateEventModal onClose={closeModal}/>}
       {activeModal === "schedule-meeting" && <ScheduleMeetingModal onClose={closeModal}/>}
       {activeModal === "apply-leave" && <ApplyLeaveModal onClose={closeModal}/>}
       {activeModal === "start-review-cycle" && <StartReviewCycleModal onClose={closeModal}/>}
+      {activeModal === "add-objective" && <AddObjectiveModal onClose={closeModal}/>}
+      {activeModal === "add-article" && <AddArticleModal onClose={closeModal}/>}
     </>
   );
 }
@@ -4208,221 +3801,121 @@ function ModalSystem() {
 // ─── EMPLOYEE EOD PAGE ────────────────────────────────────────────────────────
 
 function EODPage() {
-  const { c, light } = useTheme();
+  const { c } = useTheme();
   const { authUser } = useAuth();
-  const col = light ? LIGHT : DARK;
   const [submitted, setSubmitted] = useState(false);
-  const [mood, setMood] = useState(3);
-  const [productivity, setProductivity] = useState(7);
-  const [accomplish, setAccomplish] = useState("• Completed OAuth2 authentication flow (PR #218 ready for review)\n• Fixed memory leak in WebSocket handler — hotfix deployed\n• Reviewed 2 PRs from the team\n• Attended sprint sync and 1:1 with Marcus");
-  const [blockers, setBlockers] = useState("• CI/CD pipeline setup blocked on AWS IAM permissions (waiting on DevOps)\n• Need design spec for the new onboarding flow before implementation can continue");
-  const [priorities, setPriorities] = useState(["Set up staging CI/CD pipeline (pending AWS access)", "Start unit tests for payment module", "Code review: dashboard refactor PR #214"]);
-  const [learnings, setLearnings] = useState("Discovered a more efficient approach to handling WebSocket reconnection using exponential backoff — will document this in the knowledge base.");
-  const [flagManager, setFlagManager] = useState("");
-  const [taskUpdates, setTaskUpdates] = useState(myWorkTasks.filter(t => t.status !== "done").slice(0,4).map(t => ({ ...t, hoursToday: "", updateNote: "", completedToday: false })));
+  const [accomplish, setAccomplish] = useState("");
+  const [blockers, setBlockers] = useState("");
+  const [priorities, setPriorities] = useState(["", "", ""]);
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [history, setHistory] = useState<any[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
-  const moodEmojis = [{ e: "😫", l: "Exhausted" }, { e: "😕", l: "Struggling" }, { e: "😐", l: "Neutral" }, { e: "😊", l: "Good" }, { e: "🔥", l: "Energized" }];
-  const teamStatus = employees.slice(0,5).map((e, i) => ({ ...e, eodDone: i < 3 }));
+  useEffect(() => {
+    fetch("/api/eod").then(r => r.json()).then(d => {
+      setHistory(d.history ?? []);
+      if (d.submittedToday && d.today) {
+        setSubmitted(true);
+        setAccomplish(d.today.summary || "");
+        setBlockers(d.today.blockers || "");
+        setPriorities((d.today.tomorrowPlan || "").split("\n").filter(Boolean).concat(["", "", ""]).slice(0, 3));
+      }
+    });
+  }, []);
+  useEffect(() => {
+    if (authUser) fetch(`/api/tasks?assignee=${encodeURIComponent(authUser.name)}`).then(r => r.json()).then(d => setTasks((d.tasks ?? []).filter((t: any) => t.status !== "done")));
+  }, [authUser]);
 
-  const updateTaskField = (idx: number, key: string, value: any) => setTaskUpdates(p => p.map((t, i) => i === idx ? { ...t, [key]: value } : t));
+  const submit = async () => {
+    if (!accomplish.trim()) { setError("Please summarize what you accomplished today."); return; }
+    setSubmitting(true);
+    setError("");
+    try {
+      const res = await fetch("/api/eod", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ summary: accomplish, blockers, tomorrowPlan: priorities.filter(Boolean).join("\n") }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || "Could not submit report."); return; }
+      setSubmitted(true);
+    } catch {
+      setError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (submitted) return (
-    <div className={`min-h-[60vh] flex flex-col items-center justify-center text-center ${c("","")}`}>
+    <div className="min-h-[60vh] flex flex-col items-center justify-center text-center">
       <div className="w-20 h-20 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mb-5"><CheckCircle2 size={36} className="text-emerald-500"/></div>
       <h2 className={`text-2xl font-bold mb-2 ${c("text-white","text-slate-900")}`}>EOD Report Submitted! 🎉</h2>
       <p className={`text-sm mb-1 ${c("text-slate-400","text-slate-500")}`}>Great work today, {authUser?.name?.split(" ")[0] || "there"}!</p>
-      <p className={`text-xs ${c("text-slate-600","text-slate-400")}`}>Submitted at {new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})} · Your manager has been notified</p>
-      <div className={`mt-6 p-4 rounded-2xl border ${c("bg-slate-800/50 border-white/[0.06]","bg-slate-50 border-slate-200")} flex items-center gap-4`}>
-        <div className="text-4xl">{moodEmojis[mood-1].e}</div>
-        <div className="text-left"><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Mood · Productivity</p><p className={`text-sm font-semibold ${c("text-white","text-slate-800")}`}>{moodEmojis[mood-1].l} · {productivity}/10</p></div>
-        <div className={`w-px h-10 ${c("bg-white/[0.08]","bg-slate-200")}`}/>
-        <div><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Tasks updated</p><p className={`text-sm font-semibold ${c("text-white","text-slate-800")}`}>{taskUpdates.filter(t=>t.hoursToday||t.completedToday).length}</p></div>
-        <div className={`w-px h-10 ${c("bg-white/[0.08]","bg-slate-200")}`}/>
-        <div><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>EOD Streak</p><p className="text-sm font-semibold text-amber-500">🔥 5 days</p></div>
-      </div>
       <Btn variant="secondary" onClick={() => setSubmitted(false)} className="mt-5">Edit Report</Btn>
     </div>
   );
 
   return (
     <div className="space-y-5">
-      {/* Header */}
       <div className={`rounded-2xl border p-5 ${c("bg-gradient-to-r from-slate-800/80 to-slate-800/40 border-white/[0.06]","bg-gradient-to-r from-slate-50 to-white border-slate-200")}`}>
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-4">
-            <div className={`w-12 h-12 rounded-2xl ${authUser?.avatarColor||"bg-indigo-600"} flex items-center justify-center text-lg font-bold text-white`}>{authUser?.avatar||"SJ"}</div>
-            <div>
-              <h1 className={`text-xl font-bold ${c("text-white","text-slate-900")}`}>End of Day Report</h1>
-              <p className={`text-sm mt-0.5 ${c("text-slate-400","text-slate-500")}`}>{authUser?.name||"Sanjay Iyer"} · {authUser?.title||"CEO"} · Saturday, Jun 28, 2026</p>
-            </div>
+        <div className="flex items-center gap-4">
+          <div className={`w-12 h-12 rounded-2xl ${authUser?.avatarColor || "bg-indigo-600"} flex items-center justify-center text-lg font-bold text-white`}>{authUser?.avatar}</div>
+          <div>
+            <h1 className={`text-xl font-bold ${c("text-white","text-slate-900")}`}>End of Day Report</h1>
+            <p className={`text-sm mt-0.5 ${c("text-slate-400","text-slate-500")}`}>{authUser?.name} · {authUser?.title}</p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg ${c("bg-amber-500/10 border border-amber-500/20","bg-amber-50 border border-amber-200")}`}>
-              <Clock size={13} className="text-amber-500"/><span className="text-xs font-medium text-amber-500">Draft · Due 6:00 PM</span>
-            </div>
-            <Btn variant="secondary" size="sm">Save Draft</Btn>
-            <Btn variant="primary" onClick={() => setSubmitted(true)} icon={Send}>Submit EOD</Btn>
-          </div>
-        </div>
-        {/* Quick stats */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-5">
-          {[
-            { label: "Hours Logged", value: "5h 17m", sub: "/ 8h target", color: "text-indigo-500" },
-            { label: "Tasks Updated", value: taskUpdates.filter(t=>t.hoursToday).length.toString(), sub: `of ${taskUpdates.length} tasks`, color: "text-emerald-500" },
-            { label: "Completed Today", value: taskUpdates.filter(t=>t.completedToday).length.toString(), sub: "tasks done ✓", color: "text-emerald-500" },
-            { label: "Blockers", value: blockers.split("\n").filter(Boolean).length.toString(), sub: "to resolve", color: "text-amber-500" },
-            { label: "Mood", value: moodEmojis[mood-1].e, sub: moodEmojis[mood-1].l, color: "text-slate-400" },
-          ].map(s => (
-            <div key={s.label} className={`rounded-xl p-3 ${c("bg-slate-800/50","bg-white/60")} border ${c("border-white/[0.06]","border-slate-200/80")}`}>
-              <div className={`text-lg font-bold ${s.color}`}>{s.value}</div>
-              <div className={`text-[10px] font-semibold uppercase tracking-wider mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{s.label}</div>
-              <div className={`text-[10px] ${c("text-slate-600","text-slate-400")}`}>{s.sub}</div>
-            </div>
-          ))}
         </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        {/* Left: Self-assessment */}
         <div className="space-y-4">
-          {/* Mood */}
           <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>How are you feeling?</h3>
-            <div className="flex justify-between mb-3">
-              {moodEmojis.map((m, i) => (
-                <button key={i} onClick={() => setMood(i+1)}
-                  className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${mood === i+1 ? c("bg-indigo-600/20 scale-110","bg-indigo-50 scale-110") : "hover:scale-105 opacity-60 hover:opacity-100"}`}>
-                  <span className="text-2xl">{m.e}</span>
-                  <span className={`text-[9px] font-medium ${c("text-slate-400","text-slate-500")}`}>{m.l}</span>
-                </button>
+            <h3 className={`text-sm font-semibold mb-3 ${c("text-white","text-slate-900")}`}>Open Tasks</h3>
+            {tasks.length === 0 && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No open tasks — nice work!</p>}
+            <div className="space-y-2">
+              {tasks.slice(0, 6).map((t: any) => (
+                <div key={t.id} className="flex items-center gap-2 text-xs">
+                  <PriorityBadge priority={t.priority}/>
+                  <span className={c("text-slate-300","text-slate-700")}>{t.title}</span>
+                </div>
               ))}
             </div>
           </Card>
-
-          {/* Productivity */}
           <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-3 ${c("text-white","text-slate-900")}`}>Productivity Rating</h3>
-            <div className="flex items-center gap-3">
-              <span className={`text-3xl font-bold ${productivity >= 8 ? "text-emerald-500" : productivity >= 5 ? "text-amber-500" : "text-red-500"}`}>{productivity}</span>
-              <div className="flex-1"><span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>out of 10</span></div>
-            </div>
-            <input type="range" min="1" max="10" value={productivity} onChange={e => setProductivity(+e.target.value)}
-              className="w-full mt-2 accent-indigo-500"/>
-            <div className="flex justify-between text-[10px] mt-1">
-              <span className={c("text-slate-600","text-slate-400")}>Low</span>
-              <span className={c("text-slate-600","text-slate-400")}>High</span>
-            </div>
-          </Card>
-
-          {/* Work Hours */}
-          <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Work Hours Today</h3>
-            <div className="flex items-center gap-4 mb-3">
-              <div className="relative w-20 h-20 flex-shrink-0">
-                <svg className="w-20 h-20 -rotate-90" viewBox="0 0 80 80">
-                  <circle cx="40" cy="40" r="34" fill="none" stroke={light?"#E2E8F0":"rgba(255,255,255,0.06)"} strokeWidth="8"/>
-                  <circle cx="40" cy="40" r="34" fill="none" stroke="#4F46E5" strokeWidth="8" strokeLinecap="round" strokeDasharray={`${213.6 * 0.66} 213.6`}/>
-                </svg>
-                <div className="absolute inset-0 flex items-center justify-center"><span className={`text-xs font-bold ${c("text-white","text-slate-900")}`}>5h17m</span></div>
-              </div>
-              <div className="space-y-1.5 text-xs">
-                {[["Punch In","09:07 AM","text-emerald-500"],["Punch Out","—",c("text-slate-500","text-slate-400")],["Break","30 min",c("text-slate-400","text-slate-500")],["Target","8h 00m",c("text-slate-400","text-slate-500")]].map(([l,v,cls]) => <div key={l} className="flex justify-between gap-4"><span className={c("text-slate-500","text-slate-400")}>{l}</span><span className={`font-semibold ${cls}`}>{v}</span></div>)}
-              </div>
-            </div>
-          </Card>
-
-          {/* Team EOD Status */}
-          <Card className="p-5">
-            <h3 className={`text-sm font-semibold mb-3 ${c("text-white","text-slate-900")}`}>Team EOD Status</h3>
+            <h3 className={`text-sm font-semibold mb-3 ${c("text-white","text-slate-900")}`}>Recent Reports</h3>
+            {history.length === 0 && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No reports submitted yet.</p>}
             <div className="space-y-2">
-              {teamStatus.map(e => (
-                <div key={e.id} className="flex items-center gap-3">
-                  <Avatar initials={e.avatar} color={e.avatarColor} size="sm"/>
-                  <span className={`text-xs flex-1 ${c("text-slate-300","text-slate-700")}`}>{e.name}</span>
-                  {e.eodDone ? <span className="text-xs text-emerald-500 flex items-center gap-1"><CheckCircle2 size={12}/>Submitted</span> : <span className="text-xs text-amber-500 flex items-center gap-1"><Clock size={12}/>Pending</span>}
+              {history.slice(0, 5).map((h: any) => (
+                <div key={h.id} className={`text-xs p-2 rounded-lg ${c("bg-slate-800/50","bg-slate-50")}`}>
+                  <p className={`font-medium ${c("text-slate-300","text-slate-700")}`}>{h.date}</p>
+                  <p className={`mt-0.5 truncate ${c("text-slate-500","text-slate-400")}`}>{h.summary}</p>
                 </div>
               ))}
             </div>
           </Card>
         </div>
 
-        {/* Middle: Task Updates */}
         <div className="xl:col-span-2 space-y-4">
-          <Card className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Tasks Worked On Today</h3>
-              <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Update progress for tasks you touched today</span>
-            </div>
-            <div className="space-y-3">
-              {taskUpdates.map((task, i) => (
-                <div key={task.id} className={`p-4 rounded-xl border transition-colors ${task.completedToday ? c("border-emerald-500/30 bg-emerald-500/5","border-emerald-200 bg-emerald-50") : c("border-white/[0.06] bg-slate-800/30","border-slate-200 bg-slate-50/50")}`}>
-                  <div className="flex items-start gap-3 mb-3">
-                    <button onClick={() => updateTaskField(i,"completedToday",!task.completedToday)}
-                      className={`w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors mt-0.5 ${task.completedToday ? "bg-emerald-500 border-emerald-500" : c("border-slate-600 hover:border-emerald-400","border-slate-300 hover:border-emerald-400")}`}>
-                      {task.completedToday && <CheckCircle2 size={12} className="text-white"/>}
-                    </button>
-                    <div className="flex-1">
-                      <p className={`text-sm font-medium ${task.completedToday ? "line-through opacity-60" : ""} ${c("text-slate-200","text-slate-800")}`}>{task.title}</p>
-                      <p className={`text-[10px] mt-0.5 ${c("text-slate-500","text-slate-400")}`}>{task.project}</p>
-                    </div>
-                    <PriorityBadge priority={task.priority}/>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2">
-                    <div><label className={`text-[10px] ${c("text-slate-500","text-slate-400")}`}>Hours today</label><FInput value={task.hoursToday} onChange={v => updateTaskField(i,"hoursToday",v)} placeholder="e.g. 2.5"/></div>
-                    <div className="col-span-2"><label className={`text-[10px] ${c("text-slate-500","text-slate-400")}`}>Quick update / progress note</label><FInput value={task.updateNote} onChange={v => updateTaskField(i,"updateNote",v)} placeholder="What did you do on this task?"/></div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          {/* EOD Notes */}
           <Card className="p-5 space-y-4">
-            <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>EOD Notes</h3>
-
-            <div>
-              <FieldLabel label="What did you accomplish today?"/>
-              <FTextarea value={accomplish} onChange={setAccomplish} rows={5} placeholder="• List your key accomplishments&#10;• Code written, reviews done, meetings attended..."/>
-            </div>
-
-            <div>
-              <FieldLabel label="Blockers & Challenges"/>
-              <div className={`rounded-xl overflow-hidden border ${c("border-red-500/20","border-red-200")}`}>
-                <div className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider ${c("bg-red-500/10 text-red-400","bg-red-50 text-red-600")}`}>⚠ Blockers — requires manager attention</div>
-                <FTextarea value={blockers} onChange={setBlockers} rows={3} placeholder="• List any blockers or challenges..."/>
-              </div>
-            </div>
-
+            <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Today's Report</h3>
+            <div><FieldLabel label="What did you accomplish today?" required/><FTextarea value={accomplish} onChange={setAccomplish} rows={5} placeholder="• List your key accomplishments&#10;• Code written, reviews done, meetings attended..."/></div>
+            <div><FieldLabel label="Blockers & Challenges"/><FTextarea value={blockers} onChange={setBlockers} rows={3} placeholder="• List any blockers or challenges..."/></div>
             <div>
               <FieldLabel label="Top 3 Priorities for Tomorrow"/>
               <div className="space-y-2">
                 {priorities.map((p, i) => (
                   <div key={i} className="flex items-center gap-2">
-                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${i===0?"bg-indigo-600 text-white":i===1?c("bg-slate-700 text-slate-300","bg-slate-200 text-slate-600"):c("bg-slate-700 text-slate-400","bg-slate-100 text-slate-500")}`}>{i+1}</span>
-                    <FInput value={p} onChange={v => setPriorities(prev => prev.map((x,j) => j===i?v:x))} placeholder={`Priority ${i+1}...`}/>
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${i === 0 ? "bg-indigo-600 text-white" : c("bg-slate-700 text-slate-400","bg-slate-100 text-slate-500")}`}>{i+1}</span>
+                    <FInput value={p} onChange={v => setPriorities(prev => prev.map((x, j) => j === i ? v : x))} placeholder={`Priority ${i+1}...`}/>
                   </div>
                 ))}
               </div>
             </div>
-
-            <div><FieldLabel label="Learnings / Observations"/><FTextarea value={learnings} onChange={setLearnings} rows={2} placeholder="Key insights, new approaches, or things to remember..."/></div>
-
-            <div>
-              <FieldLabel label="Flag to Manager"/>
-              <div className={`rounded-xl overflow-hidden border ${c("border-amber-500/20","border-amber-200")}`}>
-                <div className={`px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider ${c("bg-amber-500/10 text-amber-400","bg-amber-50 text-amber-600")}`}>📌 Flagged items will be highlighted in your manager's dashboard</div>
-                <FTextarea value={flagManager} onChange={setFlagManager} rows={2} placeholder="Anything your manager should know about? (optional)"/>
-              </div>
-            </div>
           </Card>
-
-          {/* Action bar */}
-          <div className={`flex items-center justify-between p-4 rounded-xl border ${c("bg-slate-800/60 border-white/[0.06]","bg-white border-slate-200")}`}>
-            <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Last saved: 2 minutes ago</span>
-            <div className="flex items-center gap-2">
-              <Btn variant="secondary">Save Draft</Btn>
-              <Btn variant="primary" onClick={() => setSubmitted(true)} icon={Send}>Submit EOD Report</Btn>
-            </div>
+          {error && <p className="text-xs text-red-400">{error}</p>}
+          <div className={`flex items-center justify-end p-4 rounded-xl border ${c("bg-slate-800/60 border-white/[0.06]","bg-white border-slate-200")}`}>
+            <Btn variant="primary" onClick={submit} icon={Send}>{submitting ? "Submitting..." : "Submit EOD Report"}</Btn>
           </div>
         </div>
       </div>
@@ -4457,9 +3950,18 @@ const expenseCategories = [
 function MonthlyExpensesPage() {
   const { c, light } = useTheme();
   const col = light ? LIGHT : DARK;
-  const [currentMonth, setCurrentMonth] = useState(5);
-  const months = ["Jan","Feb","Mar","Apr","May","Jun"];
-  const totalExpense = expenseCategories.reduce((a, e) => a + e.amount, 0);
+  const [data, setData] = useState<any>(null);
+  const [month, setMonth] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/expenses${month ? `?month=${month}` : ""}`).then(r => r.json()).then(d => { setData(d); setMonth(d.selectedMonth); });
+  }, [month]);
+
+  if (!data) return null;
+  const idx = data.months.findIndex((m:any) => m.value === data.selectedMonth);
+  const shift = (delta: number) => { const ni = idx + delta; if (ni >= 0 && ni < data.months.length) setMonth(data.months[ni].value); };
+  const find = (name: string) => data.breakdown.find((r:any) => r.name === name);
+  const monthLabel = data.months[idx]?.label ?? "";
 
   return (
     <div className="space-y-6">
@@ -4467,31 +3969,31 @@ function MonthlyExpensesPage() {
         actions={
           <>
             <div className="flex items-center gap-1">
-              <button onClick={() => setCurrentMonth(m => Math.max(0, m-1))} className={`w-8 h-8 rounded-lg flex items-center justify-center ${c("text-slate-400 hover:bg-slate-700","text-slate-500 hover:bg-slate-100")}`}><ChevronLeft size={15}/></button>
-              <span className={`text-sm font-semibold px-3 ${c("text-white","text-slate-900")}`}>{months[currentMonth]} 2026</span>
-              <button onClick={() => setCurrentMonth(m => Math.min(months.length-1, m+1))} className={`w-8 h-8 rounded-lg flex items-center justify-center ${c("text-slate-400 hover:bg-slate-700","text-slate-500 hover:bg-slate-100")}`}><ChevronRight size={15}/></button>
+              <button onClick={() => shift(-1)} className={`w-8 h-8 rounded-lg flex items-center justify-center ${c("text-slate-400 hover:bg-slate-700","text-slate-500 hover:bg-slate-100")}`}><ChevronLeft size={15}/></button>
+              <span className={`text-sm font-semibold px-3 ${c("text-white","text-slate-900")}`}>{monthLabel}</span>
+              <button onClick={() => shift(1)} className={`w-8 h-8 rounded-lg flex items-center justify-center ${c("text-slate-400 hover:bg-slate-700","text-slate-500 hover:bg-slate-100")}`}><ChevronRight size={15}/></button>
             </div>
-            <Btn variant="secondary" size="sm" icon={Download}>Export PDF</Btn>
+            <Btn variant="secondary" size="sm" icon={Download} onClick={()=>window.location.href="/api/reports/export?type=expenses"}>Export CSV</Btn>
           </>
         }
       />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Total Expenses" value="$5.80M" change="+1.8%" changeLabel=" vs last month" icon={DollarSign} iconColor="bg-red-600/40" trend="up"/>
-        <StatCard label="Payroll Cost" value="$5.10M" change="+2.9%" changeLabel=" vs last month" icon={Users} iconColor="bg-indigo-600/40" trend="up"/>
-        <StatCard label="Operations" value="$420K" change="+2.4%" changeLabel=" vs last month" icon={Settings} iconColor="bg-amber-600/40" trend="up"/>
-        <StatCard label="Benefits & Perks" value="$280K" change="+1.2%" changeLabel=" vs last month" icon={Award} iconColor="bg-emerald-600/40" trend="up"/>
+        <StatCard label="Total Expenses" value={`$${(data.totalExpense/1000000).toFixed(2)}M`} icon={DollarSign} iconColor="bg-red-600/40" trend="up"/>
+        <StatCard label="Payroll Cost" value={`$${((find("Payroll")?.amount??0)/1000000).toFixed(2)}M`} icon={Users} iconColor="bg-indigo-600/40" trend="up"/>
+        <StatCard label="Operations" value={`$${((find("Operations")?.amount??0)/1000).toFixed(0)}K`} icon={Settings} iconColor="bg-amber-600/40" trend="up"/>
+        <StatCard label="Benefits & Perks" value={`$${((find("Benefits")?.amount??0)/1000).toFixed(0)}K`} icon={Award} iconColor="bg-emerald-600/40" trend="up"/>
       </div>
 
       {/* Stacked Bar Chart */}
       <Card className="p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>6-Month Expense Trend by Category</h3>
-          <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Jan – Jun 2026 (in thousands USD)</span>
+          <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>in thousands USD</span>
         </div>
         <ResponsiveContainer width="100%" height={260}>
-          <BarChart data={expensesMonthlyData}>
+          <BarChart data={data.trend}>
             <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/>
             <XAxis dataKey="month" tick={{ fill: col.tickColor, fontSize: 11 }} axisLine={false} tickLine={false}/>
             <YAxis tick={{ fill: col.tickColor, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}K`}/>
@@ -4511,8 +4013,8 @@ function MonthlyExpensesPage() {
         {/* Expense breakdown table */}
         <Card className="lg:col-span-2 overflow-hidden">
           <div className={`px-5 py-4 border-b ${c("border-white/[0.06]","border-slate-200")} flex items-center justify-between`}>
-            <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Expense Breakdown — {months[currentMonth]} 2026</h3>
-            <span className={`text-xs font-semibold ${c("text-slate-300","text-slate-700")}`}>Total: ${(totalExpense/1000000).toFixed(2)}M</span>
+            <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Expense Breakdown — {monthLabel}</h3>
+            <span className={`text-xs font-semibold ${c("text-slate-300","text-slate-700")}`}>Total: ${(data.totalExpense/1000000).toFixed(2)}M</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -4520,7 +4022,7 @@ function MonthlyExpensesPage() {
                 {["Category","Amount","% of Total","vs Last Month","Trend"].map(h => <th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}
               </tr></thead>
               <tbody>
-                {expenseCategories.map((cat, i) => (
+                {data.breakdown.map((cat:any, i:number) => (
                   <tr key={cat.name} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
@@ -4531,7 +4033,7 @@ function MonthlyExpensesPage() {
                     <td className={`px-4 py-3 text-sm font-semibold ${c("text-white","text-slate-900")}`}>${(cat.amount/1000).toFixed(0)}K</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <ProgressBar value={cat.pct * (100/83.1)} color="#4F46E5"/>
+                        <ProgressBar value={cat.pct} color="bg-indigo-500"/>
                         <span className={`text-xs w-10 flex-shrink-0 ${c("text-slate-400","text-slate-500")}`}>{cat.pct}%</span>
                       </div>
                     </td>
@@ -4557,16 +4059,15 @@ function MonthlyExpensesPage() {
           <Card className="p-5">
             <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Cost by Department</h3>
             <div className="space-y-3">
-              {departments.map(d => {
-                const cost = (d.employees * 105 * 1000 / 12);
-                const pct = (cost / (totalExpense)) * 100;
+              {data.costByDept.map((d:any) => {
+                const pct = data.totalExpense ? (d.cost / data.totalExpense) * 100 : 0;
                 return (
-                  <div key={d.id}>
+                  <div key={d.name}>
                     <div className="flex justify-between text-xs mb-1">
                       <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${d.color}`}/><span className={c("text-slate-300","text-slate-700")}>{d.name}</span></div>
-                      <span className={`font-semibold ${c("text-white","text-slate-900")}`}>${(cost/1000).toFixed(0)}K</span>
+                      <span className={`font-semibold ${c("text-white","text-slate-900")}`}>${(d.cost/1000).toFixed(0)}K</span>
                     </div>
-                    <ProgressBar value={pct * 3} color={d.color}/>
+                    <ProgressBar value={Math.min(pct*3,100)} color={d.color}/>
                   </div>
                 );
               })}
@@ -4576,15 +4077,9 @@ function MonthlyExpensesPage() {
           <Card className="p-5">
             <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Budget vs Actual</h3>
             <div className="space-y-3">
-              {[
-                { cat: "Payroll", budget: 5200, actual: 5100 },
-                { cat: "Operations", budget: 450, actual: 420 },
-                { cat: "Marketing", budget: 90, actual: 82 },
-                { cat: "Infrastructure", budget: 80, actual: 89 },
-                { cat: "Training", budget: 50, actual: 38 },
-              ].map(item => {
+              {data.budgetVsActual.map((item:any) => {
                 const over = item.actual > item.budget;
-                const pct = (item.actual / item.budget) * 100;
+                const pct = item.budget ? (item.actual / item.budget) * 100 : 0;
                 return (
                   <div key={item.cat}>
                     <div className="flex justify-between text-xs mb-1">
@@ -4607,14 +4102,13 @@ function MonthlyExpensesPage() {
 // ─── PAGE ROUTER ─────────────────────────────────────────────────────────────
 
 function PageContent({ page }: { page: Page }) {
-  const fullPage = ["chat","ai-assistant"].includes(page);
   return (
-    <div className={fullPage?"h-full":"p-6 overflow-y-auto h-full"}>
+    <div className="p-6 overflow-y-auto h-full">
       {page==="dashboard"&&<DashboardPage/>}{page==="employees"&&<EmployeesPage/>}{page==="departments"&&<DepartmentsPage/>}{page==="teams"&&<TeamsPage/>}
       {page==="projects"&&<ProjectsPage/>}{page==="tasks"&&<TasksPage/>}{page==="calendar"&&<CalendarPage/>}{page==="meetings"&&<MeetingsPage/>}
       {page==="attendance"&&<AttendancePage/>}{page==="leave"&&<LeavePage/>}{page==="payroll"&&<PayrollPage/>}{page==="performance"&&<PerformancePage/>}
       {page==="kpi"&&<KPIPage/>}{page==="okr"&&<OKRPage/>}{page==="analytics"&&<AnalyticsPage/>}{page==="reports"&&<ReportsPage/>}
-      {page==="knowledge"&&<KnowledgePage/>}{page==="chat"&&<ChatPage/>}{page==="ai-assistant"&&<AIAssistantPage/>}
+      {page==="knowledge"&&<KnowledgePage/>}
       {page==="settings"&&<SettingsPage/>}{page==="notifications"&&<NotificationsPage/>}{page==="roles"&&<RolesPage/>}
       {page==="audit"&&<AuditPage/>}{page==="billing"&&<BillingPage/>}{page==="profile"&&<ProfilePage/>}
       {page==="employee-profile"&&<EmployeeProfilePage/>}{page==="my-work"&&<MyWorkPage/>}
@@ -4631,6 +4125,7 @@ export default function App() {
   const [theme, setTheme] = useState<ThemeMode>("dark");
   const [selectedEmployeeId, setSelectedEmployeeId] = useState(1);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [activeModal, setActiveModal] = useState<ModalName>(null);
   const [modalData, setModalData] = useState<any>(null);
   const openModal = (n: ModalName, data?: any) => { setActiveModal(n); setModalData(data ?? null); };
@@ -4640,47 +4135,65 @@ export default function App() {
   const c = (dark: string, lt: string) => light ? lt : dark;
   const ctx: ThemeCtxType = { theme, setTheme, light, c };
 
+  const landingPage: Record<UserRole, Page> = {
+    "super-admin": "dashboard",
+    "1st-level-manager": "dashboard",
+    "2nd-level-manager": "dashboard",
+    "manager": "dashboard",
+    "team-lead": "my-work",
+    "hr-admin": "employees",
+    "employee": "my-work",
+  };
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data?.user) setAuthUser(data.user); })
+      .finally(() => setAuthChecked(true));
+  }, []);
+
   const login = (u: AuthUser) => {
     setAuthUser(u);
-    // Land each role on the most relevant first page
-    const landingPage: Record<UserRole, Page> = {
-      "super-admin": "dashboard",
-      "1st-level-manager": "dashboard",
-      "2nd-level-manager": "dashboard",
-      "manager": "dashboard",
-      "team-lead": "my-work",
-      "hr-admin": "employees",
-      "employee": "my-work",
-    };
     setPage(landingPage[u.role] || "dashboard");
   };
 
   const logout = () => {
+    fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
     setAuthUser(null);
     setPage("dashboard");
   };
 
+  const updateAuthUser = (u: AuthUser) => setAuthUser(u);
+
+  if (!authChecked) {
+    return <div className="min-h-screen flex items-center justify-center" style={{ background: "#060D1F" }}>
+      <div className="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+    </div>;
+  }
+
   if (!authUser) {
     return (
-      <AuthCtx.Provider value={{ authUser, login, logout }}>
+      <AuthCtx.Provider value={{ authUser, login, logout, updateAuthUser }}>
         <LoginPage />
       </AuthCtx.Provider>
     );
   }
 
   return (
-    <AuthCtx.Provider value={{ authUser, login, logout }}>
+    <AuthCtx.Provider value={{ authUser, login, logout, updateAuthUser }}>
       <ThemeCtx.Provider value={ctx}>
         <AppCtx.Provider value={{ selectedEmployeeId, setSelectedEmployeeId, navigateTo: setPage }}>
           <ModalCtx.Provider value={{ openModal, closeModal, activeModal, modalData }}>
-            <div className="flex h-screen overflow-hidden" style={{ background:light?LIGHT.bg:DARK.bg, fontFamily:"'Inter',-apple-system,sans-serif" }}>
-              <Sidebar activePage={page} onNavigate={setPage} collapsed={sidebarCollapsed} onToggle={()=>setSidebarCollapsed(v=>!v)}/>
-              <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-                <TopBar activePage={page} onNavigate={setPage} onToggleTheme={()=>setTheme(t=>t==="dark"?"light":"dark")}/>
-                <main className="flex-1 overflow-hidden"><PageContent page={page}/></main>
+            <DndProvider backend={HTML5Backend}>
+              <div className="flex h-screen overflow-hidden" style={{ background:light?LIGHT.bg:DARK.bg, fontFamily:"'Inter',-apple-system,sans-serif" }}>
+                <Sidebar activePage={page} onNavigate={setPage} collapsed={sidebarCollapsed} onToggle={()=>setSidebarCollapsed(v=>!v)}/>
+                <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
+                  <TopBar activePage={page} onNavigate={setPage} onToggleTheme={()=>setTheme(t=>t==="dark"?"light":"dark")}/>
+                  <main className="flex-1 overflow-hidden"><PageContent page={page}/></main>
+                </div>
               </div>
-            </div>
-            <ModalSystem/>
+              <ModalSystem/>
+            </DndProvider>
           </ModalCtx.Provider>
         </AppCtx.Provider>
       </ThemeCtx.Provider>

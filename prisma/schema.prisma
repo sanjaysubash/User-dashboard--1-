@@ -1,0 +1,506 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  super_admin
+  first_level_manager
+  second_level_manager
+  manager
+  team_lead
+  hr_admin
+  employee
+}
+
+enum EmployeeStatus {
+  active
+  on_leave
+  inactive
+}
+
+enum LeaveStatus {
+  pending
+  approved
+  rejected
+}
+
+model Employee {
+  id             Int       @id @default(autoincrement())
+  name           String
+  email          String    @unique
+  passwordHash   String
+  avatarInitials String
+  avatarColor    String
+  role           Role
+  roleLabel      String
+  title          String
+  phone          String?
+  location       String?
+  status         EmployeeStatus @default(active)
+  salary         Int?
+  permissions    String // JSON-encoded string[]
+  joinedAt       DateTime  @default(now())
+  dob            DateTime?
+
+  departmentId   Int?
+  department     Department? @relation("DeptEmployees", fields: [departmentId], references: [id])
+
+  managerId      Int?
+  manager        Employee?  @relation("ManagerReports", fields: [managerId], references: [id])
+  reports        Employee[] @relation("ManagerReports")
+
+  headOfDept     Department? @relation("DeptHead")
+  ledTeams       Team[]      @relation("TeamLead")
+  teamMemberships TeamMember[]
+
+  attendance     Attendance[]
+  leaveRequests  LeaveRequest[]     @relation("LeaveRequester")
+  reviewedLeaves LeaveRequest[]     @relation("LeaveReviewer")
+  leaveBalances  LeaveBalance[]
+  sessions       Session[]
+
+  managedProjects   Project[]        @relation("ProjectManager")
+  projectMemberships ProjectMember[]
+  assignedTasks     Task[]           @relation("TaskAssignee")
+  tasksAssignedByMe Task[]           @relation("TaskAssignedBy")
+  taskComments      TaskComment[]
+  taskActivity      TaskActivity[]
+  createdEvents     CalendarEvent[]  @relation("EventCreator")
+  createdMeetings   Meeting[]        @relation("MeetingCreator")
+  payrollRecords    PayrollRecord[]
+  reviewsReceived   PerformanceReview[] @relation("ReviewSubject")
+  reviewsGiven      PerformanceReview[] @relation("ReviewReviewer")
+  objectives        Objective[]
+  articles          KnowledgeArticle[]
+  notifications     Notification[]
+  auditLogs         AuditLogEntry[]
+  apiKeysCreated    ApiKey[]
+  eodReports        EODReport[]
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+}
+
+model Department {
+  id         Int        @id @default(autoincrement())
+  name       String     @unique
+  color      String
+  budget     Int?
+  headId     Int?       @unique
+  head       Employee?  @relation("DeptHead", fields: [headId], references: [id])
+  employees  Employee[] @relation("DeptEmployees")
+  teams      Team[]
+  projects   Project[]
+  kpis       KPI[]
+  createdAt  DateTime   @default(now())
+}
+
+model Team {
+  id           Int          @id @default(autoincrement())
+  name         String
+  departmentId Int
+  department   Department   @relation(fields: [departmentId], references: [id])
+  leadId       Int?
+  lead         Employee?    @relation("TeamLead", fields: [leadId], references: [id])
+  members      TeamMember[]
+  createdAt    DateTime     @default(now())
+}
+
+model TeamMember {
+  id         Int      @id @default(autoincrement())
+  teamId     Int
+  team       Team     @relation(fields: [teamId], references: [id])
+  employeeId Int
+  employee   Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([teamId, employeeId])
+}
+
+model Attendance {
+  id         Int       @id @default(autoincrement())
+  employeeId Int
+  employee   Employee  @relation(fields: [employeeId], references: [id])
+  date       DateTime
+  punchIn    DateTime?
+  punchOut   DateTime?
+  status     String // present | late | absent
+  hoursWorked Float?
+
+  @@unique([employeeId, date])
+}
+
+model LeaveType {
+  id          Int             @id @default(autoincrement())
+  name        String          @unique
+  defaultDays Int
+  color       String
+  balances    LeaveBalance[]
+  requests    LeaveRequest[]
+}
+
+model LeaveBalance {
+  id          Int       @id @default(autoincrement())
+  employeeId  Int
+  employee    Employee  @relation(fields: [employeeId], references: [id])
+  leaveTypeId Int
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+  total       Int
+  used        Int       @default(0)
+
+  @@unique([employeeId, leaveTypeId])
+}
+
+model LeaveRequest {
+  id           Int        @id @default(autoincrement())
+  employeeId   Int
+  employee     Employee   @relation("LeaveRequester", fields: [employeeId], references: [id])
+  leaveTypeId  Int
+  leaveType    LeaveType  @relation(fields: [leaveTypeId], references: [id])
+  startDate    DateTime
+  endDate      DateTime
+  days         Float
+  reason       String
+  status       LeaveStatus @default(pending)
+  reviewedById Int?
+  reviewedBy   Employee?  @relation("LeaveReviewer", fields: [reviewedById], references: [id])
+  reviewedAt   DateTime?
+  createdAt    DateTime   @default(now())
+}
+
+model Session {
+  id         String   @id
+  tokenHash  String   @unique
+  employeeId Int
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  userAgent  String?
+  ip         String?
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+}
+
+// ─── PROJECTS & TASKS ─────────────────────────────────────────────────────────
+
+model Project {
+  id           Int       @id @default(autoincrement())
+  name         String
+  code         String?
+  client       String?
+  departmentId Int?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  managerId    Int?
+  manager      Employee? @relation("ProjectManager", fields: [managerId], references: [id])
+  priority     String    // critical | high | medium | low
+  status       String    // planning | in-progress | review | on-hold | completed
+  description  String?
+  startDate    DateTime?
+  deadline     DateTime?
+  budget       Int?
+  spent        Int       @default(0)
+  details      String?   // JSON blob for milestones etc.
+  members      ProjectMember[]
+  tasks        Task[]
+  createdAt    DateTime  @default(now())
+}
+
+model ProjectMember {
+  id         Int      @id @default(autoincrement())
+  projectId  Int
+  project    Project  @relation(fields: [projectId], references: [id])
+  employeeId Int
+  employee   Employee @relation(fields: [employeeId], references: [id])
+
+  @@unique([projectId, employeeId])
+}
+
+model Task {
+  id          Int       @id @default(autoincrement())
+  title       String
+  projectId   Int?
+  project     Project?  @relation(fields: [projectId], references: [id])
+  assigneeId  Int?
+  assignee    Employee? @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  assignedById Int?
+  assignedBy  Employee? @relation("TaskAssignedBy", fields: [assignedById], references: [id])
+  priority    String    // critical | high | medium | low
+  status      String    // todo | in-progress | review | done
+  dueDate     DateTime?
+  tags        String    @default("[]") // JSON string[]
+  description String?
+  estimateHours Float?
+  comments    TaskComment[]
+  activity    TaskActivity[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model TaskComment {
+  id        Int      @id @default(autoincrement())
+  taskId    Int
+  task      Task     @relation(fields: [taskId], references: [id])
+  authorId  Int
+  author    Employee @relation(fields: [authorId], references: [id])
+  content   String
+  createdAt DateTime @default(now())
+}
+
+model TaskActivity {
+  id        Int       @id @default(autoincrement())
+  taskId    Int
+  task      Task      @relation(fields: [taskId], references: [id])
+  actorId   Int?
+  actor     Employee? @relation(fields: [actorId], references: [id])
+  action    String    // created | status_changed | reassigned | commented | edited
+  detail    String?
+  createdAt DateTime  @default(now())
+}
+
+// ─── CALENDAR & MEETINGS ──────────────────────────────────────────────────────
+
+model CalendarEvent {
+  id          Int       @id @default(autoincrement())
+  title       String
+  date        DateTime
+  startTime   String?
+  endTime     String?
+  allDay      Boolean   @default(false)
+  type        String    // meeting | focus | event | deadline | holiday
+  color       String    @default("bg-indigo-500")
+  description String?
+  location    String?
+  link        String?
+  attendeeIds String    @default("[]") // JSON number[]
+  createdById Int?
+  createdBy   Employee? @relation("EventCreator", fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+}
+
+model Meeting {
+  id          Int       @id @default(autoincrement())
+  title       String
+  date        DateTime
+  startTime   String
+  endTime     String
+  type        String    // video | in-person | phone | hybrid
+  gmeetLink   String?
+  room        String?
+  agenda      String?
+  recurrence  String    @default("none")
+  attendeeIds String    @default("[]") // JSON number[]
+  createdById Int?
+  createdBy   Employee? @relation("MeetingCreator", fields: [createdById], references: [id])
+  createdAt   DateTime  @default(now())
+}
+
+// ─── PAYROLL ──────────────────────────────────────────────────────────────────
+
+model PayrollRecord {
+  id          Int       @id @default(autoincrement())
+  employeeId  Int
+  employee    Employee  @relation(fields: [employeeId], references: [id])
+  month       String    // "2026-06"
+  basic       Int
+  allowances  Int
+  deductions  Int
+  netPay      Int
+  status      String    @default("processed") // processed | pending
+  processedAt DateTime  @default(now())
+
+  @@unique([employeeId, month])
+}
+
+model OperatingExpense {
+  id           Int    @id @default(autoincrement())
+  category     String // Operations | Marketing | Infrastructure | Travel | Benefits | Training
+  month        String // "2026-06"
+  amount       Int
+  budgetAmount Int
+
+  @@unique([category, month])
+}
+
+// ─── PERFORMANCE ──────────────────────────────────────────────────────────────
+
+model PerformanceCycle {
+  id              Int       @id @default(autoincrement())
+  name            String
+  quarter         String
+  year            String
+  reviewType      String
+  ratingScale     String    @default("1-5")
+  template        String?
+  departments     String    @default("[]") // JSON string[]
+  kickoff         DateTime?
+  selfDeadline    DateTime?
+  managerDeadline DateTime?
+  resultsDate     DateTime?
+  status          String    @default("active") // active | completed
+  reviews         PerformanceReview[]
+  createdAt       DateTime  @default(now())
+}
+
+model PerformanceReview {
+  id         Int       @id @default(autoincrement())
+  cycleId    Int
+  cycle      PerformanceCycle @relation(fields: [cycleId], references: [id])
+  employeeId Int
+  employee   Employee  @relation("ReviewSubject", fields: [employeeId], references: [id])
+  reviewerId Int?
+  reviewer   Employee? @relation("ReviewReviewer", fields: [reviewerId], references: [id])
+  score      Float?
+  status     String    @default("todo") // todo | in-progress | completed
+  feedback   String?
+
+  @@unique([cycleId, employeeId])
+}
+
+// ─── KPI & OKR ────────────────────────────────────────────────────────────────
+
+model KPI {
+  id           Int        @id @default(autoincrement())
+  name         String
+  departmentId Int?
+  department   Department? @relation(fields: [departmentId], references: [id])
+  current      Float
+  target       Float
+  unit         String    @default("")
+  trend        String    @default("up") // up | down
+  period       String    @default("") // e.g. "Q3 2026"
+  createdAt    DateTime  @default(now())
+}
+
+model Objective {
+  id         Int       @id @default(autoincrement())
+  title      String
+  ownerId    Int?
+  owner      Employee? @relation(fields: [ownerId], references: [id])
+  quarter    String
+  year       String
+  keyResults KeyResult[]
+  createdAt  DateTime  @default(now())
+}
+
+model KeyResult {
+  id          Int       @id @default(autoincrement())
+  objectiveId Int
+  objective   Objective @relation(fields: [objectiveId], references: [id])
+  title       String
+  progress    Int       @default(0)
+  status      String    @default("on-track") // on-track | at-risk
+}
+
+// ─── KNOWLEDGE BASE ───────────────────────────────────────────────────────────
+
+model KnowledgeArticle {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String   @default("")
+  category  String
+  authorId  Int?
+  author    Employee? @relation(fields: [authorId], references: [id])
+  views     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
+
+model Notification {
+  id         Int      @id @default(autoincrement())
+  employeeId Int
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  type       String
+  title      String
+  body       String
+  read       Boolean  @default(false)
+  link       String?
+  createdAt  DateTime @default(now())
+}
+
+// ─── ROLES, AUDIT, API KEYS ───────────────────────────────────────────────────
+
+model RolePermission {
+  id         Int    @id @default(autoincrement())
+  role       Role
+  permission String
+
+  @@unique([role, permission])
+}
+
+model AuditLogEntry {
+  id         Int       @id @default(autoincrement())
+  actorId    Int?
+  actor      Employee? @relation(fields: [actorId], references: [id])
+  actorName  String
+  action     String
+  resource   String
+  ip         String    @default("")
+  severity   String    @default("info") // info | warning | danger
+  createdAt  DateTime  @default(now())
+}
+
+model ApiKey {
+  id           Int       @id @default(autoincrement())
+  name         String
+  keyPrefix    String
+  keyHash      String
+  permissions  String    @default("Read Only")
+  createdById  Int?
+  createdBy    Employee? @relation(fields: [createdById], references: [id])
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+}
+
+// ─── BILLING & ORG SETTINGS ───────────────────────────────────────────────────
+
+model Invoice {
+  id       Int       @id @default(autoincrement())
+  period   String    // "2026-06"
+  amount   Int
+  status   String    @default("pending") // paid | pending | failed
+  issuedAt DateTime  @default(now())
+  paidAt   DateTime?
+}
+
+model OrgSettings {
+  id                     Int     @id @default(1)
+  companyName            String  @default("Riaura Technologies Inc.")
+  domain                 String  @default("riaura.com")
+  industry               String  @default("Enterprise Software")
+  companySize            String  @default("1,001–5,000 employees")
+  headquarters           String  @default("San Francisco, CA, USA")
+  fiscalYearStart        String  @default("January")
+  currency               String  @default("USD")
+  timezone               String  @default("America/Los_Angeles")
+  dateFormat             String  @default("MM/DD/YYYY")
+  plan                   String  @default("Enterprise")
+  seats                  Int     @default(100)
+  pricePerMonth          Int     @default(4200)
+  twoFactorEnabled       Boolean @default(true)
+  ssoEnabled             Boolean @default(true)
+  passwordPolicy         String  @default("Strong (12+ chars)")
+  sessionTimeoutHours    Int     @default(8)
+  notifyTaskAssignments  Boolean @default(true)
+  notifyProjectUpdates   Boolean @default(true)
+  notifyLeaveApprovals   Boolean @default(true)
+  notifyPayrollProcessed Boolean @default(false)
+}
+
+// ─── END OF DAY REPORTS ───────────────────────────────────────────────────────
+
+model EODReport {
+  id           Int      @id @default(autoincrement())
+  employeeId   Int
+  employee     Employee @relation(fields: [employeeId], references: [id])
+  date         DateTime
+  summary      String
+  blockers     String?
+  tomorrowPlan String?
+  createdAt    DateTime @default(now())
+
+  @@unique([employeeId, date])
+}

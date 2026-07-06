@@ -1,0 +1,41 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getCurrentUser, canApprove } from "@/lib/auth";
+import { logAudit } from "@/lib/audit";
+import { notify } from "@/lib/notify";
+
+type Params = { params: Promise<{ id: string }> };
+
+export async function PATCH(req: NextRequest, { params }: Params) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!canApprove(user)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const id = Number((await params).id);
+  const body = await req.json().catch(() => ({}));
+  const status = body?.status;
+  if (status !== "approved" && status !== "rejected") {
+    return NextResponse.json({ error: "status must be 'approved' or 'rejected'." }, { status: 400 });
+  }
+
+  const request = await prisma.leaveRequest.findUnique({ where: { id } });
+  if (!request) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (request.status !== "pending") return NextResponse.json({ error: "Request already reviewed." }, { status: 409 });
+
+  await prisma.leaveRequest.update({
+    where: { id },
+    data: { status, reviewedById: user.id, reviewedAt: new Date() },
+  });
+
+  if (status === "approved") {
+    await prisma.leaveBalance.updateMany({
+      where: { employeeId: request.employeeId, leaveTypeId: request.leaveTypeId },
+      data: { used: { increment: request.days } },
+    });
+  }
+
+  await notify(request.employeeId, "leave", `Leave request ${status}`, `Your leave request has been ${status} by ${user.name}.`, "leave");
+  await logAudit(user, `${status === "approved" ? "Approved" : "Rejected"} leave request #${request.id}`, "Leave");
+
+  return NextResponse.json({ ok: true });
+}

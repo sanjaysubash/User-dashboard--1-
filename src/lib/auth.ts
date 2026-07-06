@@ -1,0 +1,85 @@
+import { randomBytes, createHash } from "crypto";
+import { cookies } from "next/headers";
+import type { NextResponse } from "next/server";
+import type { Employee } from "@prisma/client";
+import { prisma } from "./prisma";
+
+export { hashPassword, verifyPassword } from "./password";
+
+export const SESSION_COOKIE = "riaura_session";
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+export type SafeEmployee = Omit<Employee, "passwordHash"> & {
+  department?: { name: string } | null;
+};
+
+function sanitize(employee: Employee & { department?: { name: string } | null }): SafeEmployee {
+  const { passwordHash: _passwordHash, ...safe } = employee;
+  return safe;
+}
+
+export async function createSession(employeeId: number, userAgent?: string | null, ip?: string | null) {
+  const token = randomBytes(32).toString("hex");
+  const tokenHash = hashToken(token);
+  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
+  await prisma.session.create({
+    data: { id: randomBytes(16).toString("hex"), tokenHash, employeeId, expiresAt, userAgent: userAgent ?? null, ip: ip ?? null },
+  });
+  return { token, expiresAt };
+}
+
+export async function getCurrentSessionTokenHash(): Promise<string | null> {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  return token ? hashToken(token) : null;
+}
+
+export function setSessionCookie(res: NextResponse, token: string, expiresAt: Date) {
+  res.cookies.set(SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    expires: expiresAt,
+    path: "/",
+  });
+}
+
+export function clearSessionCookie(res: NextResponse) {
+  res.cookies.set(SESSION_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
+}
+
+export async function destroyCurrentSession() {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  if (token) {
+    await prisma.session.deleteMany({ where: { tokenHash: hashToken(token) } });
+  }
+}
+
+export async function getCurrentUser(): Promise<SafeEmployee | null> {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+  const session = await prisma.session.findUnique({
+    where: { tokenHash: hashToken(token) },
+    include: { employee: { include: { department: true } } },
+  });
+  if (!session || session.expiresAt < new Date()) return null;
+  return sanitize(session.employee);
+}
+
+const HR_ROLES = ["super_admin", "hr_admin"];
+export function isHrAdmin(user: SafeEmployee): boolean {
+  return HR_ROLES.includes(user.role);
+}
+
+// Leave approval is restricted to super_admin (currently Aashika N and Venkat B,
+// the CEO and Co-Founder) rather than the broader manager hierarchy.
+export const APPROVER_ROLES = ["super_admin"];
+export function canApprove(user: SafeEmployee): boolean {
+  return APPROVER_ROLES.includes(user.role);
+}
