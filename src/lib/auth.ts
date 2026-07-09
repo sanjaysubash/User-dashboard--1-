@@ -90,3 +90,11 @@ export const TASK_ADMIN_ROLES = ["super_admin", "manager", "first_level_manager"
 export function canViewAllTasks(user: SafeEmployee): boolean {
   return TASK_ADMIN_ROLES.includes(user.role);
 }
+
+// The ops expense log is scoped to one named individual (an operations
+// employee), not a role, so it deliberately sits outside the
+// ALL_PERMISSIONS/RolePermission system used everywhere else.
+const OPS_EXPENSE_SUBMITTER_EMAILS = ["vignesh@aaruchudar.com"];
+export function canSubmitOpsExpense(user: SafeEmployee): boolean {
+  return OPS_EXPENSE_SUBMITTER_EMAILS.includes(user.email);
+}

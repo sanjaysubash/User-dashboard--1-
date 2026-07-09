@@ -22,6 +22,10 @@ import { HTML5Backend } from "react-dnd-html5-backend";
 
 const TASK_DRAG_TYPE = "TASK";
 
+// Vignesh is locked to Calendar + Expense Log only — see Sidebar's hasAccess.
+// Mirrors the server-side gate in src/lib/auth.ts (canSubmitOpsExpense).
+const VIGNESH_EMAIL = "vignesh@aaruchudar.com";
+
 // ─── THEME CONTEXT ────────────────────────────────────────────────────────────
 
 type ThemeMode = "dark" | "light";
@@ -91,7 +95,7 @@ const useAuth = () => useContext(AuthCtx);
 type ModalName =
   | "add-employee" | "add-department" | "department-detail" | "create-team" | "create-project"
   | "create-task" | "task-detail" | "create-event" | "schedule-meeting" | "apply-leave"
-  | "add-objective" | "add-article" | "eod-detail" | "add-expense-claim" | null;
+  | "add-objective" | "add-article" | "eod-detail" | "add-expense-claim" | "add-ops-expense" | null;
 
 const ModalCtx = createContext<{
   openModal: (n: ModalName, data?: any) => void;
@@ -109,7 +113,7 @@ type Page =
   | "payroll" | "kpi" | "okr" | "analytics"
   | "reports" | "knowledge" | "settings"
   | "notifications" | "meetings" | "roles" | "audit" | "billing" | "profile"
-  | "employee-profile" | "my-work" | "eod" | "payroll-expenses" | "expense-claims";
+  | "employee-profile" | "my-work" | "eod" | "payroll-expenses" | "expense-claims" | "expense-log";
 
 
 // ─── SHARED COMPONENTS ────────────────────────────────────────────────────────
@@ -234,7 +238,7 @@ const navGroups = [
   { label:"Overview", items:[{id:"dashboard",label:"Dashboard",icon:LayoutDashboard},{id:"my-work",label:"My Work",icon:User}] },
   { label:"Organization", items:[{id:"employees",label:"Employees",icon:Users},{id:"departments",label:"Departments",icon:Building2},{id:"teams",label:"Teams",icon:Network}] },
   { label:"Work", items:[{id:"projects",label:"Projects",icon:FolderKanban},{id:"tasks",label:"Tasks",icon:CheckSquare},{id:"calendar",label:"Calendar",icon:Calendar},{id:"meetings",label:"Meetings",icon:Video}] },
-  { label:"HR", items:[{id:"attendance",label:"Attendance",icon:Clock},{id:"leave",label:"Leave",icon:PlaneTakeoff},{id:"payroll",label:"Payroll",icon:DollarSign},{id:"payroll-expenses",label:"Expenses",icon:BarChart3},{id:"expense-claims",label:"Expense Claims",icon:Receipt}] },
+  { label:"HR", items:[{id:"attendance",label:"Attendance",icon:Clock},{id:"leave",label:"Leave",icon:PlaneTakeoff},{id:"payroll",label:"Payroll",icon:DollarSign},{id:"payroll-expenses",label:"Expenses",icon:BarChart3},{id:"expense-claims",label:"Expense Claims",icon:Receipt},{id:"expense-log",label:"Expense Log",icon:Wallet}] },
   { label:"Analytics", items:[{id:"kpi",label:"KPI",icon:Target},{id:"okr",label:"OKR",icon:Zap},{id:"analytics",label:"Analytics",icon:BarChart3},{id:"reports",label:"Reports",icon:FileBarChart}] },
   { label:"Workspace", items:[{id:"knowledge",label:"Knowledge Base",icon:BookOpen},{id:"notifications",label:"Notifications",icon:Bell},{id:"eod",label:"EOD Report",icon:FileText}] },
   { label:"Admin", items:[{id:"settings",label:"Settings",icon:Settings},{id:"roles",label:"Roles & Permissions",icon:ShieldCheck},{id:"audit",label:"Audit Logs",icon:Activity},{id:"billing",label:"Billing",icon:CreditCard}] },
@@ -243,7 +247,17 @@ const navGroups = [
 function Sidebar({ activePage, onNavigate, collapsed, onToggle }: { activePage: Page; onNavigate:(p:Page)=>void; collapsed:boolean; onToggle:()=>void }) {
   const { authUser, logout } = useAuth();
   const perms = authUser?.permissions || ["*"];
-  const hasAccess = (id: string) => perms.includes("*") || perms.includes(id);
+  // Vignesh is locked to Calendar + Expense Log only, regardless of whatever
+  // his role would otherwise grant. "expense-log" itself is scoped to him
+  // specifically (or super_admin) rather than living in the permissions
+  // system — see canSubmitOpsExpense in src/lib/auth.ts, the real
+  // server-side enforcement of both of these rules.
+  const isVignesh = authUser?.email === VIGNESH_EMAIL;
+  const hasAccess = (id: string) => {
+    if (isVignesh) return id === "calendar" || id === "expense-log";
+    if (id === "expense-log") return authUser?.role === "super-admin";
+    return perms.includes("*") || perms.includes(id);
+  };
   const [unreadCount, setUnreadCount] = useState(0);
   useEffect(() => {
     const load = () => fetch("/api/notifications").then(r => r.json()).then(d => setUnreadCount((d.notifications ?? []).filter((n:any)=>!n.read).length)).catch(()=>{});
@@ -678,7 +692,7 @@ function DepartmentsPage() {
               <div><h3 className={`font-semibold text-sm ${c("text-white","text-slate-900")}`}>{dept.name}</h3><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{dept.employees} employees</p></div>
             </div>
             <div className="space-y-2 text-xs">
-              {[["Head",dept.head],["Projects",`${dept.projects} active`],["Budget",`$${(dept.budget/1000000).toFixed(1)}M`]].map(([label,val])=>(
+              {[["Head",dept.head],["Projects",`${dept.projects} active`],["Budget",`₹${(dept.budget/1000000).toFixed(1)}M`]].map(([label,val])=>(
                 <div key={label as string} className="flex justify-between"><span className={c("text-slate-500","text-slate-400")}>{label}</span><span className={`font-medium ${c("text-slate-300","text-slate-600")}`}>{val}</span></div>
               ))}
               <div className="mt-2">
@@ -850,7 +864,7 @@ function ProjectsPage() {
                     <p className={`text-xs mb-3 flex items-center gap-1 ${c("text-slate-500","text-slate-400")}`}><Users size={11}/>{p.team} members · {p.tasks} tasks</p>
                     <ProgressBar value={p.progress}/>
                     <div className="flex items-center justify-between mt-2"><span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{p.progress}% done</span><span className={`text-[10px] ${c("text-slate-600","text-slate-400")}`}>{p.deadline}</span></div>
-                    <div className={`mt-3 pt-3 border-t ${c("border-white/[0.06]","border-slate-100")} flex items-center justify-between text-xs ${c("text-slate-500","text-slate-400")}`}><span>${(p.spent/1000).toFixed(0)}K spent</span><span>${(p.budget/1000).toFixed(0)}K budget</span></div>
+                    <div className={`mt-3 pt-3 border-t ${c("border-white/[0.06]","border-slate-100")} flex items-center justify-between text-xs ${c("text-slate-500","text-slate-400")}`}><span>₹{(p.spent/1000).toFixed(0)}K spent</span><span>₹{(p.budget/1000).toFixed(0)}K budget</span></div>
                   </Card>
                 ))}
               </div>
@@ -870,7 +884,7 @@ function ProjectsPage() {
                     <td className="px-4 py-3"><PriorityBadge priority={p.priority}/></td>
                     <td className="px-4 py-3 w-36"><div className="flex items-center gap-2"><ProgressBar value={p.progress}/><span className={`text-xs w-8 ${c("text-slate-400","text-slate-500")}`}>{p.progress}%</span></div></td>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{p.team}</td>
-                    <td className="px-4 py-3"><p className={`text-sm ${c("text-slate-300","text-slate-700")}`}>${(p.budget/1000).toFixed(0)}K</p><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>${(p.spent/1000).toFixed(0)}K spent</p></td>
+                    <td className="px-4 py-3"><p className={`text-sm ${c("text-slate-300","text-slate-700")}`}>₹{(p.budget/1000).toFixed(0)}K</p><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>₹{(p.spent/1000).toFixed(0)}K spent</p></td>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{p.deadline}</td>
                   </tr>
                 ))}
@@ -1024,6 +1038,11 @@ function CalendarPage() {
   });
   const nextHoliday = data.upcoming.find((e:any)=>e.type==="holiday");
   const awayLabel = (n:number) => n===0?"Today!":n===1?"Tomorrow":`In ${n} days`;
+  // Header row is Mon-first; getDay() is Sun-first (0-6). Convert so Monday -> 0
+  // leading blanks, ..., Sunday -> 6. A fixed single blank cell here previously
+  // misaligned every month whose 1st wasn't a Tuesday.
+  const firstDow = new Date(data.year, data.month-1, 1).getDay();
+  const leadingBlanks = (firstDow + 6) % 7;
 
   return (
     <div>
@@ -1033,7 +1052,7 @@ function CalendarPage() {
           <div className="flex items-center justify-between mb-5"><h3 className={`font-semibold ${c("text-white","text-slate-900")}`}>{MONTH_NAMES[cursor.month-1]} {cursor.year}</h3><div className="flex gap-1"><button onClick={()=>shiftMonth(-1)} className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-400 hover:bg-slate-700","text-slate-500 hover:bg-slate-100")}`}><ChevronLeft size={15}/></button><button onClick={()=>shiftMonth(1)} className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-400 hover:bg-slate-700","text-slate-500 hover:bg-slate-100")}`}><ChevronRight size={15}/></button></div></div>
           <div className="grid grid-cols-7 mb-2">{["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map(d=><div key={d} className={`text-center text-xs font-medium py-1 ${c("text-slate-500","text-slate-400")}`}>{d}</div>)}</div>
           <div className="grid grid-cols-7 gap-1">
-            <div/>
+            {Array.from({length:leadingBlanks},(_,i)=><div key={`blank-${i}`}/>)}
             {Array.from({length:data.daysInMonth},(_,i)=>{
               const day=i+1,dayEvents=data.events.filter((e:any)=>e.day===day),isToday=isCurrentMonth&&day===now.getDate();
               const holiday = dayEvents.find((e:any)=>e.type==="holiday");
@@ -1433,7 +1452,7 @@ function ExpenseClaimsPage() {
                     <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={r.avatar} color={r.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{r.employee}</span></div></td>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{r.date}</td>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{r.category}</td>
-                    <td className={`px-4 py-3 text-sm font-medium ${c("text-slate-300","text-slate-700")}`}>${r.amount.toLocaleString()}</td>
+                    <td className={`px-4 py-3 text-sm font-medium ${c("text-slate-300","text-slate-700")}`}>₹{r.amount.toLocaleString("en-IN")}</td>
                     <td className={`px-4 py-3 text-sm max-w-xs truncate ${c("text-slate-400","text-slate-500")}`}>{r.description}</td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2">
@@ -1459,7 +1478,7 @@ function ExpenseClaimsPage() {
                 <tr key={e.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
                   <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{e.date}</td>
                   <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{e.category}</td>
-                  <td className={`px-4 py-3 text-sm font-medium ${c("text-slate-300","text-slate-700")}`}>${e.amount.toLocaleString()}</td>
+                  <td className={`px-4 py-3 text-sm font-medium ${c("text-slate-300","text-slate-700")}`}>₹{e.amount.toLocaleString("en-IN")}</td>
                   <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{e.description}</td>
                   <td className="px-4 py-3"><StatusBadge status={e.status}/></td>
                 </tr>
@@ -1501,7 +1520,7 @@ function AddExpenseClaimModal({ onClose }: { onClose: () => void }) {
 
   if (done) return (
     <ModalOverlay title="Expense Claim Submitted" onClose={onClose}>
-      <SuccessBanner message={`Your $${f.amount} ${f.category} expense claim has been submitted and is pending approval.`}/>
+      <SuccessBanner message={`Your ₹${f.amount} ${f.category} expense claim has been submitted and is pending approval.`}/>
       <Btn variant="primary" onClick={onClose}>Done</Btn>
     </ModalOverlay>
   );
@@ -1517,12 +1536,254 @@ function AddExpenseClaimModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div><FieldLabel label="Date" required/><FInput value={f.date} onChange={v => set("date",v)} type="date"/></div>
-          <div><FieldLabel label="Amount ($)" required/><FInput value={f.amount} onChange={v => set("amount",v)} type="number" placeholder="0.00"/></div>
+          <div><FieldLabel label="Amount (₹)" required/><FInput value={f.amount} onChange={v => set("amount",v)} type="number" placeholder="0.00"/></div>
         </div>
         <div><FieldLabel label="Description" required/><FTextarea value={f.description} onChange={v => set("description",v)} placeholder="What was this expense for?"/></div>
         {submitError && <p className="text-xs text-red-400">{submitError}</p>}
         <div className="flex gap-2 pt-2">
           <Btn variant="primary" onClick={handleSubmit}>{submitting ? "Submitting..." : "Submit Claim"}</Btn>
+          <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
+        </div>
+      </div>
+    </ModalOverlay>
+  );
+}
+
+// ─── OPS EXPENSE LOG ──────────────────────────────────────────────────────────
+// Deliberately minimal, no-workflow payment log: Vignesh (or whoever
+// canSubmitOpsExpense allows) logs a payment; only super_admin sees the full
+// list, CSV export, and spend charts. See src/lib/auth.ts for the access gate.
+
+function monthBuckets(entries: any[], n = 6) {
+  const buckets: Record<string, number> = {};
+  const order: string[] = [];
+  const now = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+    buckets[key] = 0;
+    order.push(key);
+  }
+  for (const e of entries) {
+    const key = new Date(e.rawDate).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+    if (key in buckets) buckets[key] += e.amount;
+  }
+  return order.map(label => ({ label, amount: buckets[label] }));
+}
+
+function startOfWeek(d: Date) {
+  const x = new Date(d);
+  const day = x.getDay();
+  x.setDate(x.getDate() + ((day === 0 ? -6 : 1) - day));
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
+
+function weekBuckets(entries: any[], n = 8) {
+  const thisWeek = startOfWeek(new Date());
+  const buckets: Record<string, number> = {};
+  const order: string[] = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(thisWeek);
+    d.setDate(d.getDate() - i * 7);
+    const key = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    buckets[key] = 0;
+    order.push(key);
+  }
+  for (const e of entries) {
+    const key = startOfWeek(new Date(e.rawDate)).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    if (key in buckets) buckets[key] += e.amount;
+  }
+  return order.map(label => ({ label, amount: buckets[label] }));
+}
+
+function ExpenseLogPage() {
+  const { c, light } = useTheme();
+  const col = light ? LIGHT : DARK;
+  const { authUser } = useAuth();
+  const { openModal, activeModal } = useModal();
+  const [entries, setEntries] = useState<any[]>([]);
+  const isSubmitter = authUser?.email === VIGNESH_EMAIL;
+  const isSuperAdmin = authUser?.role === "super-admin";
+
+  useEffect(() => {
+    if (activeModal === "add-ops-expense") return;
+    if (isSubmitter || isSuperAdmin) fetch("/api/ops-expenses").then(r => r.json()).then(d => setEntries(d.entries ?? []));
+  }, [activeModal, isSubmitter, isSuperAdmin]);
+
+  if (!isSubmitter && !isSuperAdmin) return null;
+
+  const monthData = monthBuckets(entries);
+  const weekData = weekBuckets(entries);
+
+  return (
+    <div className="space-y-6">
+      <PageHeader title="Expense Log" subtitle={isSuperAdmin ? "All operations payments logged" : "Log a payment you made on the company's behalf"}
+        actions={
+          <>
+            {isSubmitter && <Btn size="sm" icon={Plus} onClick={()=>openModal("add-ops-expense")}>Log Expense</Btn>}
+            {isSuperAdmin && <Btn variant="secondary" size="sm" icon={Download} onClick={()=>window.location.href="/api/reports/export?type=ops-expenses"}>Export CSV</Btn>}
+          </>
+        }
+      />
+
+      {isSuperAdmin && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card className="p-5">
+            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Spend by Month</h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={monthData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/>
+                <XAxis dataKey="label" tick={{ fill: col.tickColor, fontSize: 11 }} axisLine={false} tickLine={false}/>
+                <YAxis tick={{ fill: col.tickColor, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `₹${v}`}/>
+                <Tooltip content={(p: any) => <ChartTip {...p} light={light}/>}/>
+                <Bar dataKey="amount" name="Amount" fill="#4F46E5" radius={[3,3,0,0]}/>
+              </BarChart>
+            </ResponsiveContainer>
+          </Card>
+          <Card className="p-5">
+            <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Spend by Week</h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={weekData}>
+                <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/>
+                <XAxis dataKey="label" tick={{ fill: col.tickColor, fontSize: 11 }} axisLine={false} tickLine={false}/>
+                <YAxis tick={{ fill: col.tickColor, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `₹${v}`}/>
+                <Tooltip content={(p: any) => <ChartTip {...p} light={light}/>}/>
+                <Bar dataKey="amount" name="Amount" fill="#22C55E" radius={[3,3,0,0]}/>
+              </BarChart>
+            </ResponsiveContainer>
+          </Card>
+        </div>
+      )}
+
+      <Card>
+        <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}>
+          <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>{isSuperAdmin ? "All Entries" : "My Submissions"}</h3>
+        </div>
+        {entries.length===0 && <p className={`p-4 text-sm ${c("text-slate-500","text-slate-400")}`}>No expenses logged yet.</p>}
+        {entries.length>0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>
+                {[...(isSuperAdmin?["Submitted By"]:[]),"Date","Payee","Reason","Description","Mode","Amount","Screenshot"].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}
+              </tr></thead>
+              <tbody>{entries.map((e:any)=>(
+                <tr key={e.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
+                  {isSuperAdmin && <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{e.submittedBy}</td>}
+                  <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{e.date}</td>
+                  <td className={`px-4 py-3 text-sm font-medium ${c("text-slate-200","text-slate-800")}`}>{e.payeeName}</td>
+                  <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{e.reason}</td>
+                  <td className={`px-4 py-3 text-sm max-w-xs truncate ${c("text-slate-400","text-slate-500")}`}>{e.description}</td>
+                  <td className="px-4 py-3"><Badge variant="info">{e.paymentMode}</Badge></td>
+                  <td className={`px-4 py-3 text-sm font-semibold ${c("text-white","text-slate-900")}`}>₹{e.amount.toLocaleString("en-IN")}</td>
+                  <td className="px-4 py-3">{e.screenshotUrl ? <a href={e.screenshotUrl} target="_blank" rel="noreferrer" className="text-indigo-400 text-xs hover:underline">View</a> : <span className={`text-xs ${c("text-slate-600","text-slate-400")}`}>—</span>}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function AddOpsExpenseModal({ onClose }: { onClose: () => void }) {
+  const { authUser } = useAuth();
+  const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [f, setF] = useState({ payeeName: "", reason: "", description: "", paymentMode: "cash", amount: "", date: new Date().toISOString().slice(0,10) });
+  const [screenshotUrl, setScreenshotUrl] = useState("");
+  const [screenshotName, setScreenshotName] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
+
+  const handleFileSelected = async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    setSubmitError("");
+    if (file.size > 5 * 1024 * 1024) { setSubmitError(`"${file.name}" is over the 5MB limit.`); return; }
+    setUploading(true);
+    try {
+      const { upload } = await import("@vercel/blob/client");
+      const blob = await upload(`ops-expenses/${authUser?.id}/${Date.now()}-${file.name}`, file, {
+        access: "public",
+        handleUploadUrl: "/api/ops-expenses/upload",
+      });
+      setScreenshotUrl(blob.url);
+      setScreenshotName(file.name);
+    } catch {
+      setSubmitError("Could not upload the screenshot. Please try again.");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (!(f.payeeName && f.reason && f.paymentMode && f.amount && f.date)) return;
+    if (f.paymentMode === "online" && !screenshotUrl) { setSubmitError("Please attach a payment screenshot for online payments."); return; }
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const res = await fetch("/api/ops-expenses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...f, screenshotUrl: f.paymentMode === "online" ? screenshotUrl : null }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSubmitError(data.error || "Could not submit this expense."); return; }
+      setDone(true);
+    } catch {
+      setSubmitError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (done) return (
+    <ModalOverlay title="Expense Logged" onClose={onClose}>
+      <SuccessBanner message={`Your ₹${f.amount} payment to ${f.payeeName} has been logged.`}/>
+      <Btn variant="primary" onClick={onClose}>Done</Btn>
+    </ModalOverlay>
+  );
+
+  return (
+    <ModalOverlay title="Log an Expense" subtitle="Record a payment made on the company's behalf" onClose={onClose}>
+      <div className="space-y-4">
+        <div><FieldLabel label="Paid To" required/><FInput value={f.payeeName} onChange={v => set("payeeName",v)} placeholder="Vendor or person paid"/></div>
+        <div><FieldLabel label="Reason for Payment" required/><FInput value={f.reason} onChange={v => set("reason",v)} placeholder="e.g. Office supplies, courier"/></div>
+        <div><FieldLabel label="Description"/><FTextarea value={f.description} onChange={v => set("description",v)} placeholder="Any additional detail"/></div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <FieldLabel label="Mode of Payment" required/>
+            <FSelect value={f.paymentMode} onChange={v => { set("paymentMode",v); if (v !== "online") { setScreenshotUrl(""); setScreenshotName(""); } }}>
+              <option value="cash">Cash</option>
+              <option value="online">Online</option>
+              <option value="cheque">Cheque</option>
+            </FSelect>
+          </div>
+          <div><FieldLabel label="Amount (₹)" required/><FInput value={f.amount} onChange={v => set("amount",v)} type="number" placeholder="0"/></div>
+        </div>
+        <div><FieldLabel label="Date" required/><FInput value={f.date} onChange={v => set("date",v)} type="date"/></div>
+        {f.paymentMode === "online" && (
+          <div>
+            <FieldLabel label="Payment Screenshot" required/>
+            <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={e => handleFileSelected(e.target.files)}/>
+            {screenshotUrl ? (
+              <div className="flex items-center gap-2 text-xs">
+                <span className="text-emerald-400">{screenshotName || "Screenshot attached"}</span>
+                <button type="button" onClick={() => { setScreenshotUrl(""); setScreenshotName(""); }} className="text-slate-500 hover:text-red-400"><X size={12}/></button>
+              </div>
+            ) : (
+              <Btn size="sm" variant="secondary" icon={Upload} onClick={() => fileInputRef.current?.click()}>{uploading ? "Uploading..." : "Attach Screenshot"}</Btn>
+            )}
+          </div>
+        )}
+        {submitError && <p className="text-xs text-red-400">{submitError}</p>}
+        <div className="flex gap-2 pt-2">
+          <Btn variant="primary" disabled={uploading} onClick={handleSubmit}>{submitting ? "Submitting..." : "Log Expense"}</Btn>
           <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
         </div>
       </div>
@@ -2050,13 +2311,13 @@ function BillingPage() {
           <div className="flex items-center justify-between mb-3"><Badge variant="info">Current Plan</Badge><Badge variant="success">Active</Badge></div>
           <h3 className={`text-lg font-bold mb-1 ${c("text-white","text-slate-900")}`}>{data.plan}</h3>
           <p className={`text-sm mb-4 ${c("text-slate-400","text-slate-500")}`}>Full access to all RIAURA features</p>
-          <div className={`text-3xl font-bold ${c("text-white","text-slate-900")}`}>${data.pricePerMonth.toLocaleString()}<span className={`text-base font-normal ${c("text-slate-500","text-slate-400")}`}>/month</span></div>
+          <div className={`text-3xl font-bold ${c("text-white","text-slate-900")}`}>₹{data.pricePerMonth.toLocaleString("en-IN")}<span className={`text-base font-normal ${c("text-slate-500","text-slate-400")}`}>/month</span></div>
           <p className={`text-xs mt-1 mb-4 ${c("text-slate-500","text-slate-400")}`}>{data.seats.toLocaleString()} seats</p>
           <div className="space-y-1.5 text-xs">{["Unlimited employees","All HR modules","Priority support","99.99% SLA"].map(f=><div key={f} className={`flex items-center gap-2 ${c("text-slate-400","text-slate-500")}`}><CheckCircle2 size={12} className="text-emerald-500"/>{f}</div>)}</div>
         </Card>
         <Card className="p-4">
           <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Current Invoice</p>
-          <p className={`text-base font-semibold mt-0.5 ${c("text-white","text-slate-900")}`}>${(current?.amount ?? 0).toLocaleString()}.00</p>
+          <p className={`text-base font-semibold mt-0.5 ${c("text-white","text-slate-900")}`}>₹{(current?.amount ?? 0).toLocaleString("en-IN")}.00</p>
           <p className={`text-xs mt-0.5 ${c("text-slate-600","text-slate-400")}`}>{current?.period}</p>
           <div className="mt-2">{current && <StatusBadge status={current.status}/>}</div>
           {isAdmin && current && current.status !== "paid" && <Btn size="sm" className="mt-3" onClick={()=>setStatus(current.id,"paid")}>Mark as Paid</Btn>}
@@ -2075,7 +2336,7 @@ function BillingPage() {
             <tbody>{data.invoices.map((inv:any)=>(
               <tr key={inv.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")}`}>
                 <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{inv.period}</td>
-                <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>${inv.amount.toLocaleString()}.00</td>
+                <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>₹{inv.amount.toLocaleString("en-IN")}.00</td>
                 <td className={`px-4 py-3 text-xs ${c("text-slate-500","text-slate-400")}`}>{inv.issuedAt}</td>
                 <td className="px-4 py-3"><StatusBadge status={inv.status}/></td>
                 <td className="px-4 py-3">{isAdmin && inv.status !== "paid" && <button onClick={()=>setStatus(inv.id,"paid")} className="text-xs text-indigo-500">Mark Paid</button>}</td>
@@ -2143,7 +2404,7 @@ function SettingsPage() {
           {isAdmin && <Btn variant="primary" size="sm" icon={RefreshCw} className="mt-2" onClick={()=>save(["companyName","domain","industry","companySize","headquarters"])}>Save Changes</Btn>}
         </div></Card>
         <Card className="p-5"><h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Localization</h3><div className="space-y-3">
-          {[["fiscalYearStart","Fiscal Year Start",["January","April","July"]],["currency","Currency",["USD","EUR","GBP"]],["timezone","Timezone",["America/New_York","America/Los_Angeles","Asia/Kolkata"]],["dateFormat","Date Format",["MM/DD/YYYY","DD/MM/YYYY"]]].map(([key,l,opts])=><div key={key as string}><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>{l as string}</label><select disabled={!isAdmin} value={form[key as string]} onChange={e=>setForm((p:any)=>({...p,[key as string]:e.target.value}))} className={inp}>{(opts as string[]).map(o=><option key={o}>{o}</option>)}</select></div>)}
+          {[["fiscalYearStart","Fiscal Year Start",["January","April","July"]],["currency","Currency",["INR","USD","EUR","GBP"]],["timezone","Timezone",["America/New_York","America/Los_Angeles","Asia/Kolkata"]],["dateFormat","Date Format",["MM/DD/YYYY","DD/MM/YYYY"]]].map(([key,l,opts])=><div key={key as string}><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>{l as string}</label><select disabled={!isAdmin} value={form[key as string]} onChange={e=>setForm((p:any)=>({...p,[key as string]:e.target.value}))} className={inp}>{(opts as string[]).map(o=><option key={o}>{o}</option>)}</select></div>)}
           {isAdmin && <Btn variant="primary" size="sm" icon={RefreshCw} className="mt-2" onClick={()=>save(["fiscalYearStart","currency","timezone","dateFormat"])}>Save Changes</Btn>}
         </div></Card>
       </div>}
@@ -2389,7 +2650,7 @@ function EmployeeProfilePage() {
             { label: "Attendance", value: `${emp.attendance}%`, sub: "last 30 days", color: emp.attendance >= 95 ? "text-emerald-500" : "text-amber-500" },
             ...(canViewEmpTasks ? [{ label: "Open Tasks", value: String(tasks.filter((t: any) => t.status !== "done").length), sub: `${tasks.length} total`, color: "text-violet-500" }] : []),
             { label: "Projects", value: String(empProjects.length), sub: "assigned", color: "text-indigo-500" },
-            ...(canViewSensitive ? [{ label: "Salary", value: `$${(emp.salary/1000).toFixed(0)}K`, sub: "annual CTC", color: "text-emerald-500" }] : []),
+            ...(canViewSensitive ? [{ label: "Salary", value: `₹${(emp.salary/1000).toFixed(0)}K`, sub: "annual CTC", color: "text-emerald-500" }] : []),
           ].map(s => (
             <div key={s.label} className="text-center">
               <p className={`text-lg font-bold ${s.color}`}>{s.value}</p>
@@ -3039,7 +3300,7 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
     firstName: "", lastName: "", email: "", phone: "", dob: "", gender: "Male", nationality: "American",
     dept: "", jobTitle: "", roleLevel: "employee", empType: "Full-time", workLoc: "Hybrid",
     manager: modalData?.defaultManager ?? "", startDate: "", probationEnd: "",
-    salary: "", payFreq: "Monthly", currency: "USD", annualLeave: "24", sickLeave: "12",
+    salary: "", payFreq: "Monthly", currency: "INR", annualLeave: "24", sickLeave: "12",
   });
   const set = (k: string, v: string) => setF(prev => ({ ...prev, [k]: v }));
 
@@ -3141,12 +3402,12 @@ function AddEmployeeModal({ onClose }: { onClose: () => void }) {
       {step === 3 && (
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
-            <div><FieldLabel label="Basic Salary (Annual)" required/><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">$</span><FInput value={f.salary} onChange={v => set("salary",v)} placeholder="e.g. 120000" className="pl-7"/></div></div>
+            <div><FieldLabel label="Basic Salary (Annual)" required/><div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">₹</span><FInput value={f.salary} onChange={v => set("salary",v)} placeholder="e.g. 1200000" className="pl-7"/></div></div>
             <div><FieldLabel label="Pay Frequency"/><FSelect value={f.payFreq} onChange={v => set("payFreq",v)}><option>Monthly</option><option>Bi-weekly</option><option>Weekly</option></FSelect></div>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div><FieldLabel label="Currency"/><FSelect value={f.currency} onChange={v => set("currency",v)}><option>USD</option><option>EUR</option><option>GBP</option><option>INR</option></FSelect></div>
-            {f.salary && <div className={`p-3 rounded-xl ${c("bg-indigo-600/10","bg-indigo-50")} border ${c("border-indigo-500/20","border-indigo-200")}`}><p className={`text-xs ${c("text-indigo-400","text-indigo-600")}`}>Monthly: <strong className="text-sm">${f.currency} {(parseFloat(f.salary||"0")/12).toLocaleString("en-US",{maximumFractionDigits:0})}</strong></p></div>}
+            <div><FieldLabel label="Currency"/><FSelect value={f.currency} onChange={v => set("currency",v)}><option>INR</option><option>USD</option><option>EUR</option><option>GBP</option></FSelect></div>
+            {f.salary && <div className={`p-3 rounded-xl ${c("bg-indigo-600/10","bg-indigo-50")} border ${c("border-indigo-500/20","border-indigo-200")}`}><p className={`text-xs ${c("text-indigo-400","text-indigo-600")}`}>Monthly: <strong className="text-sm">₹{(parseFloat(f.salary||"0")/12).toLocaleString("en-IN",{maximumFractionDigits:0})}</strong></p></div>}
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div><FieldLabel label="Annual Leave (days)"/><FInput value={f.annualLeave} onChange={v => set("annualLeave",v)} placeholder="24"/></div>
@@ -3221,7 +3482,7 @@ function AddDepartmentModal({ onClose }: { onClose: () => void }) {
         <div><FieldLabel label="Head of Department" required/><FSelect value={f.head} onChange={v => set("head",v)}><option value="">Select manager...</option>{employees.map(e => <option key={e.id}>{e.name}</option>)}</FSelect></div>
         <div className="grid grid-cols-2 gap-4">
           <div><FieldLabel label="Parent Department"/><FSelect value={f.parent} onChange={v => set("parent",v)}><option>None (Top-level)</option>{departments.map(d => <option key={d.id}>{d.name}</option>)}</FSelect></div>
-          <div><FieldLabel label="Annual Budget (USD)"/><FInput value={f.budget} onChange={v => set("budget",v)} placeholder="e.g. 1500000"/></div>
+          <div><FieldLabel label="Annual Budget (₹)"/><FInput value={f.budget} onChange={v => set("budget",v)} placeholder="e.g. 1500000"/></div>
         </div>
         <div><FieldLabel label="Description"/><FTextarea value={f.desc} onChange={v => set("desc",v)} placeholder="Brief description of this department's purpose and responsibilities..."/></div>
         <div>
@@ -3298,7 +3559,7 @@ function DepartmentDetailModal({ onClose }: { onClose: () => void }) {
         <div className="space-y-4">
           <div><FieldLabel label="Department Name" required/><FInput value={f.name} onChange={v=>setF(p=>({...p,name:v}))}/></div>
           <div><FieldLabel label="Head of Department"/><FSelect value={f.head} onChange={v=>setF(p=>({...p,head:v}))}><option value="">Unassigned</option>{employees.map((e:any)=><option key={e.id}>{e.name}</option>)}</FSelect></div>
-          <div><FieldLabel label="Annual Budget (USD)"/><FInput value={f.budget} onChange={v=>setF(p=>({...p,budget:v}))} placeholder="e.g. 1500000"/></div>
+          <div><FieldLabel label="Annual Budget (₹)"/><FInput value={f.budget} onChange={v=>setF(p=>({...p,budget:v}))} placeholder="e.g. 1500000"/></div>
           <div>
             <FieldLabel label="Department Color"/>
             <div className="flex gap-2 mt-1">{colors.map(col=><button key={col} onClick={()=>setF(p=>({...p,color:col}))} className={`w-7 h-7 rounded-full ${col} transition-transform ${f.color===col?"scale-125 ring-2 ring-white/40":"hover:scale-110"}`}/>)}</div>
@@ -3316,7 +3577,7 @@ function DepartmentDetailModal({ onClose }: { onClose: () => void }) {
             <div><h3 className={`font-semibold text-sm ${c("text-white","text-slate-900")}`}>{dept.name}</h3><p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{dept.employees} employees</p></div>
           </div>
           <div className="space-y-2 text-sm">
-            {[["Head",dept.head],["Active Projects",String(dept.projects)],["Budget",`$${(dept.budget/1000000).toFixed(2)}M`]].map(([label,val])=>(
+            {[["Head",dept.head],["Active Projects",String(dept.projects)],["Budget",`₹${(dept.budget/1000000).toFixed(2)}M`]].map(([label,val])=>(
               <div key={label as string} className="flex justify-between"><span className={c("text-slate-500","text-slate-400")}>{label}</span><span className={`font-medium ${c("text-slate-300","text-slate-700")}`}>{val}</span></div>
             ))}
           </div>
@@ -3481,7 +3742,7 @@ function CreateProjectModal({ onClose }: { onClose: () => void }) {
         <div className="grid grid-cols-3 gap-4">
           <div><FieldLabel label="Start Date" required/><FInput value={f.startDate} onChange={v => set("startDate",v)} type="date"/></div>
           <div><FieldLabel label="Deadline" required/><FInput value={f.deadline} onChange={v => set("deadline",v)} type="date"/></div>
-          <div><FieldLabel label="Total Budget (USD)"/><FInput value={f.budget} onChange={v => set("budget",v)} placeholder="e.g. 500000"/></div>
+          <div><FieldLabel label="Total Budget (₹)"/><FInput value={f.budget} onChange={v => set("budget",v)} placeholder="e.g. 500000"/></div>
         </div>
         <div>
           <FieldLabel label="Milestones"/>
@@ -4193,6 +4454,7 @@ function ModalSystem() {
       {activeModal === "add-article" && <AddArticleModal onClose={closeModal}/>}
       {activeModal === "eod-detail" && <EODDetailModal onClose={closeModal}/>}
       {activeModal === "add-expense-claim" && <AddExpenseClaimModal onClose={closeModal}/>}
+      {activeModal === "add-ops-expense" && <AddOpsExpenseModal onClose={closeModal}/>}
     </>
   );
 }
@@ -4584,23 +4846,23 @@ function MonthlyExpensesPage() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard label="Total Expenses" value={`$${(data.totalExpense/1000000).toFixed(2)}M`} icon={DollarSign} iconColor="bg-red-600/40" trend="up"/>
-        <StatCard label="Payroll Cost" value={`$${((find("Payroll")?.amount??0)/1000000).toFixed(2)}M`} icon={Users} iconColor="bg-indigo-600/40" trend="up"/>
-        <StatCard label="Operations" value={`$${((find("Operations")?.amount??0)/1000).toFixed(0)}K`} icon={Settings} iconColor="bg-amber-600/40" trend="up"/>
-        <StatCard label="Benefits & Perks" value={`$${((find("Benefits")?.amount??0)/1000).toFixed(0)}K`} icon={Award} iconColor="bg-emerald-600/40" trend="up"/>
+        <StatCard label="Total Expenses" value={`₹${(data.totalExpense/1000000).toFixed(2)}M`} icon={DollarSign} iconColor="bg-red-600/40" trend="up"/>
+        <StatCard label="Payroll Cost" value={`₹${((find("Payroll")?.amount??0)/1000000).toFixed(2)}M`} icon={Users} iconColor="bg-indigo-600/40" trend="up"/>
+        <StatCard label="Operations" value={`₹${((find("Operations")?.amount??0)/1000).toFixed(0)}K`} icon={Settings} iconColor="bg-amber-600/40" trend="up"/>
+        <StatCard label="Benefits & Perks" value={`₹${((find("Benefits")?.amount??0)/1000).toFixed(0)}K`} icon={Award} iconColor="bg-emerald-600/40" trend="up"/>
       </div>
 
       {/* Stacked Bar Chart */}
       <Card className="p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>6-Month Expense Trend by Category</h3>
-          <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>in thousands USD</span>
+          <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>in thousands ₹</span>
         </div>
         <ResponsiveContainer width="100%" height={260}>
           <BarChart data={data.trend}>
             <CartesianGrid strokeDasharray="3 3" stroke={col.chartGrid}/>
             <XAxis dataKey="month" tick={{ fill: col.tickColor, fontSize: 11 }} axisLine={false} tickLine={false}/>
-            <YAxis tick={{ fill: col.tickColor, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}K`}/>
+            <YAxis tick={{ fill: col.tickColor, fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `₹${v}K`}/>
             <Tooltip content={(p: any) => <ChartTip {...p} light={light}/>}/>
             <Legend wrapperStyle={{ fontSize: 11, color: col.tickColor }}/>
             <Bar key="exp-payroll" dataKey="payroll" name="Payroll" stackId="a" fill="#4F46E5"/>
@@ -4634,7 +4896,7 @@ function MonthlyExpensesPage() {
                         <span className={`text-sm font-medium ${c("text-slate-200","text-slate-800")}`}>{cat.name}</span>
                       </div>
                     </td>
-                    <td className={`px-4 py-3 text-sm font-semibold ${c("text-white","text-slate-900")}`}>${(cat.amount/1000).toFixed(0)}K</td>
+                    <td className={`px-4 py-3 text-sm font-semibold ${c("text-white","text-slate-900")}`}>₹{(cat.amount/1000).toFixed(0)}K</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <ProgressBar value={cat.pct} color="bg-indigo-500"/>
@@ -4674,7 +4936,7 @@ function MonthlyExpensesPage() {
                   <div key={d.name}>
                     <div className="flex justify-between text-xs mb-1">
                       <div className="flex items-center gap-1.5"><div className={`w-2 h-2 rounded-full ${d.color}`}/><span className={c("text-slate-300","text-slate-700")}>{d.name}</span></div>
-                      <span className={`font-semibold ${c("text-white","text-slate-900")}`}>${(d.cost/1000).toFixed(0)}K</span>
+                      <span className={`font-semibold ${c("text-white","text-slate-900")}`}>₹{(d.cost/1000).toFixed(0)}K</span>
                     </div>
                     <ProgressBar value={Math.min(pct*3,100)} color={d.color}/>
                   </div>
@@ -4693,10 +4955,10 @@ function MonthlyExpensesPage() {
                   <div key={item.cat}>
                     <div className="flex justify-between text-xs mb-1">
                       <span className={c("text-slate-400","text-slate-500")}>{item.cat}</span>
-                      <span className={`font-semibold ${over ? "text-red-400" : "text-emerald-500"}`}>${item.actual}K / ${item.budget}K</span>
+                      <span className={`font-semibold ${over ? "text-red-400" : "text-emerald-500"}`}>₹{item.actual}K / ₹{item.budget}K</span>
                     </div>
                     <ProgressBar value={Math.min(pct, 100)} color={over ? "bg-red-500" : "bg-emerald-500"}/>
-                    {over && <p className="text-[10px] text-red-400 mt-0.5">Over budget by ${item.actual-item.budget}K</p>}
+                    {over && <p className="text-[10px] text-red-400 mt-0.5">Over budget by ₹{item.actual-item.budget}K</p>}
                   </div>
                 );
               })}
@@ -4745,8 +5007,8 @@ function EditExpenseModal({ category, month, initialAmount, initialBudget, onClo
   return (
     <ModalOverlay title={`Edit ${category}`} subtitle={month} onClose={onClose}>
       <div className="space-y-4">
-        <div><FieldLabel label="Amount Spent (USD)" required/><FInput value={amount} onChange={setAmount} placeholder="e.g. 45000"/></div>
-        <div><FieldLabel label="Budget (USD)" required/><FInput value={budget} onChange={setBudget} placeholder="e.g. 50000"/></div>
+        <div><FieldLabel label="Amount Spent (₹)" required/><FInput value={amount} onChange={setAmount} placeholder="e.g. 45000"/></div>
+        <div><FieldLabel label="Budget (₹)" required/><FInput value={budget} onChange={setBudget} placeholder="e.g. 50000"/></div>
         {error && <p className="text-xs text-red-400">{error}</p>}
         <div className="flex gap-2 pt-2">
           <Btn variant="primary" onClick={save} disabled={busy}>{busy?"Saving...":"Save"}</Btn>
@@ -4770,7 +5032,7 @@ function PageContent({ page }: { page: Page }) {
       {page==="settings"&&<SettingsPage/>}{page==="notifications"&&<NotificationsPage/>}{page==="roles"&&<RolesPage/>}
       {page==="audit"&&<AuditPage/>}{page==="billing"&&<BillingPage/>}{page==="profile"&&<ProfilePage/>}
       {page==="employee-profile"&&<EmployeeProfilePage/>}{page==="my-work"&&<MyWorkPage/>}
-      {page==="eod"&&<EODPage/>}{page==="payroll-expenses"&&<MonthlyExpensesPage/>}{page==="expense-claims"&&<ExpenseClaimsPage/>}
+      {page==="eod"&&<EODPage/>}{page==="payroll-expenses"&&<MonthlyExpensesPage/>}{page==="expense-claims"&&<ExpenseClaimsPage/>}{page==="expense-log"&&<ExpenseLogPage/>}
     </div>
   );
 }

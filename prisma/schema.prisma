@@ -84,6 +84,7 @@ model Employee {
   eodReports        EODReport[]
   expenseClaims         ExpenseClaim[]  @relation("ExpenseClaimant")
   expenseClaimsReviewed ExpenseClaim[]  @relation("ExpenseClaimReviewer")
+  opsExpenses           OpsExpense[]
 
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
@@ -508,6 +509,26 @@ model ExpenseClaim {
   reviewedBy   Employee? @relation("ExpenseClaimReviewer", fields: [reviewedById], references: [id])
   reviewedAt   DateTime?
   createdAt    DateTime  @default(now())
+}
+
+// ─── OPS EXPENSE LOG ──────────────────────────────────────────────────────────
+// A flat payment log (no approval workflow) for operations spend. Only the
+// submitter and super_admin can see it — see canSubmitOpsExpense in
+// src/lib/auth.ts. Screenshots live in Blob storage; only the URL is stored
+// here, same pattern as EODReport.attachments below.
+
+model OpsExpense {
+  id            Int      @id @default(autoincrement())
+  employeeId    Int
+  employee      Employee @relation(fields: [employeeId], references: [id])
+  payeeName     String
+  reason        String
+  description   String?
+  paymentMode   String   // cash | online | cheque
+  amount        Int
+  date          DateTime
+  screenshotUrl String?  // required only when paymentMode === "online"
+  createdAt     DateTime @default(now())
 }
 
 // ─── END OF DAY REPORTS ───────────────────────────────────────────────────────

@@ -23,6 +23,11 @@ export async function GET(req: NextRequest) {
   if (SENSITIVE_TYPES.includes(type) && !isHrAdmin(user)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+  // Stricter than the SENSITIVE_TYPES/isHrAdmin gate above — only super_admin,
+  // not hr_admin, may export the ops expense log.
+  if (type === "ops-expenses" && user.role !== "super_admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   let rows: Record<string, unknown>[] = [];
 
@@ -61,6 +66,18 @@ export async function GET(req: NextRequest) {
         ? o.keyResults.map((kr) => ({ Objective: o.title, Owner: o.owner?.name ?? "Unassigned", Quarter: `${o.quarter} ${o.year}`, KeyResult: kr.title, Progress: kr.progress, Status: kr.status }))
         : [{ Objective: o.title, Owner: o.owner?.name ?? "Unassigned", Quarter: `${o.quarter} ${o.year}`, KeyResult: "", Progress: 0, Status: "" }]
     );
+  } else if (type === "ops-expenses") {
+    const entries = await prisma.opsExpense.findMany({ include: { employee: true }, orderBy: { date: "desc" } });
+    rows = entries.map((e) => ({
+      Date: e.date.toISOString().slice(0, 10),
+      Payee: e.payeeName,
+      Reason: e.reason,
+      Description: e.description ?? "",
+      Mode: e.paymentMode,
+      Amount: e.amount,
+      SubmittedBy: e.employee.name,
+      Screenshot: e.screenshotUrl ?? "",
+    }));
   } else {
     return NextResponse.json({ error: "Unknown report type." }, { status: 400 });
   }

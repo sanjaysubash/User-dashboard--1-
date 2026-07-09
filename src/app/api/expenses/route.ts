@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
     update: { amount, budgetAmount },
   });
 
-  await logAudit(user, `Set ${category} expenses for ${month} to $${amount.toLocaleString()}`, "Expenses");
+  await logAudit(user, `Set ${category} expenses for ${month} to ₹${amount.toLocaleString("en-IN")}`, "Expenses");
 
   return NextResponse.json({ ok: true });
 }

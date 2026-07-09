@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
         admin.id,
         "expense",
         "New expense claim",
-        `${user.name} submitted a $${amount.toLocaleString()} ${category} expense claim.`,
+        `${user.name} submitted a ₹${amount.toLocaleString("en-IN")} ${category} expense claim.`,
         "expense-claims"
       )
     )

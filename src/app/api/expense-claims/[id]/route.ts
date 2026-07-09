@@ -27,7 +27,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     data: { status, reviewedById: user.id, reviewedAt: new Date() },
   });
 
-  await notify(claim.employeeId, "expense", `Expense claim ${status}`, `Your $${claim.amount.toLocaleString()} ${claim.category} expense claim has been ${status} by ${user.name}.`, "expense-claims");
+  await notify(claim.employeeId, "expense", `Expense claim ${status}`, `Your ₹${claim.amount.toLocaleString("en-IN")} ${claim.category} expense claim has been ${status} by ${user.name}.`, "expense-claims");
   await logAudit(user, `${status === "approved" ? "Approved" : "Rejected"} expense claim #${claim.id}`, "Expense Claims");
 
   return NextResponse.json({ ok: true });
