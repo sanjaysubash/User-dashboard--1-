@@ -521,6 +521,7 @@ model EODReport {
   blockers     String?
   tomorrowPlan String?
   taskIds      String   @default("[]") // JSON-encoded number[]
+  attachments  String   @default("[]") // JSON-encoded [{name,url,size,type}] — files live in Blob storage, only refs here
   createdAt    DateTime @default(now())
 
   @@unique([employeeId, date])

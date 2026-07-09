@@ -26,6 +26,45 @@ function parseTaskIds(json: string): number[] {
   }
 }
 
+type Attachment = { name: string; url: string; size: number; type: string };
+
+const MAX_ATTACHMENTS = 5;
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024; // 5MB, mirrors /api/eod/upload
+const ALLOWED_BLOB_HOST_SUFFIX = ".public.blob.vercel-storage.com";
+
+function parseAttachments(json: string): Attachment[] {
+  try {
+    const arr = JSON.parse(json);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+// The DB only ever stores this JSON (name/url/size/type) — never file bytes.
+// This validation is what actually prevents someone from smuggling a data:
+// URL or an oversized payload into that JSON and bloating the DB anyway.
+function sanitizeAttachments(input: unknown): { attachments: Attachment[]; error?: string } {
+  if (input === undefined) return { attachments: [] };
+  if (!Array.isArray(input)) return { attachments: [], error: "Invalid attachments." };
+  if (input.length > MAX_ATTACHMENTS) return { attachments: [], error: `You can attach at most ${MAX_ATTACHMENTS} files.` };
+
+  const attachments: Attachment[] = [];
+  for (const item of input) {
+    if (!item || typeof item !== "object") return { attachments: [], error: "Invalid attachment." };
+    const { name, url, size, type } = item as Record<string, unknown>;
+    if (typeof url !== "string" || !url.startsWith("https://") || !url.includes(ALLOWED_BLOB_HOST_SUFFIX)) {
+      return { attachments: [], error: "Attachments must be uploaded via the file picker." };
+    }
+    if (typeof size !== "number" || size < 0 || size > MAX_ATTACHMENT_BYTES) {
+      return { attachments: [], error: "Attachment exceeds the 5MB size limit." };
+    }
+    if (typeof name !== "string" || typeof type !== "string") return { attachments: [], error: "Invalid attachment." };
+    attachments.push({ name: name.slice(0, 200), url, size, type });
+  }
+  return { attachments };
+}
+
 export async function GET() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -47,7 +86,13 @@ export async function GET() {
   return NextResponse.json({
     submittedToday: !!todayReport,
     today: todayReport
-      ? { summary: todayReport.summary, blockers: todayReport.blockers, tomorrowPlan: todayReport.tomorrowPlan, taskIds: parseTaskIds(todayReport.taskIds) }
+      ? {
+          summary: todayReport.summary,
+          blockers: todayReport.blockers,
+          tomorrowPlan: todayReport.tomorrowPlan,
+          taskIds: parseTaskIds(todayReport.taskIds),
+          attachments: parseAttachments(todayReport.attachments),
+        }
       : null,
     history: history.map((r) => ({
       id: r.id,
@@ -56,6 +101,7 @@ export async function GET() {
       blockers: r.blockers,
       tomorrowPlan: r.tomorrowPlan,
       tasks: resolve(parseTaskIds(r.taskIds)),
+      attachments: parseAttachments(r.attachments),
     })),
     compliance: {
       submitted: monthReports.length,
@@ -78,11 +124,15 @@ export async function POST(req: NextRequest) {
     : [];
   const taskIds = JSON.stringify(ownedTasks.map((t) => t.id));
 
+  const { attachments: safeAttachments, error: attachmentError } = sanitizeAttachments(body?.attachments);
+  if (attachmentError) return NextResponse.json({ error: attachmentError }, { status: 400 });
+  const attachments = JSON.stringify(safeAttachments);
+
   const today = startOfDay(new Date());
   const report = await prisma.eODReport.upsert({
     where: { employeeId_date: { employeeId: user.id, date: today } },
-    create: { employeeId: user.id, date: today, summary, blockers: body?.blockers || null, tomorrowPlan: body?.tomorrowPlan || null, taskIds },
-    update: { summary, blockers: body?.blockers || null, tomorrowPlan: body?.tomorrowPlan || null, taskIds },
+    create: { employeeId: user.id, date: today, summary, blockers: body?.blockers || null, tomorrowPlan: body?.tomorrowPlan || null, taskIds, attachments },
+    update: { summary, blockers: body?.blockers || null, tomorrowPlan: body?.tomorrowPlan || null, taskIds, attachments },
   });
 
   return NextResponse.json({ ok: true, id: report.id });

@@ -4132,6 +4132,10 @@ function EODPage() {
   );
 }
 
+type EodAttachment = { name: string; url: string; size: number; type: string };
+const MAX_EOD_ATTACHMENTS = 5;
+const MAX_EOD_ATTACHMENT_BYTES = 5 * 1024 * 1024; // 5MB
+
 function MyEODView() {
   const { c } = useTheme();
   const { authUser } = useAuth();
@@ -4145,6 +4149,9 @@ function MyEODView() {
   const [compliance, setCompliance] = useState<{submitted:number;workingDays:number}|null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [attachments, setAttachments] = useState<EodAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch("/api/eod").then(r => r.json()).then(d => {
@@ -4156,6 +4163,7 @@ function MyEODView() {
         setBlockers(d.today.blockers || "");
         setPriorities((d.today.tomorrowPlan || "").split("\n").filter(Boolean).concat(["", "", ""]).slice(0, 3));
         setSelectedTaskIds(d.today.taskIds ?? []);
+        setAttachments(d.today.attachments ?? []);
       }
     });
   }, []);
@@ -4165,6 +4173,35 @@ function MyEODView() {
 
   const toggleTask = (id: number) => setSelectedTaskIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
+  const handleFilesSelected = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setError("");
+    const room = MAX_EOD_ATTACHMENTS - attachments.length;
+    if (room <= 0) { setError(`You can attach at most ${MAX_EOD_ATTACHMENTS} files.`); return; }
+    const picked = Array.from(files).slice(0, room);
+
+    setUploading(true);
+    try {
+      const { upload } = await import("@vercel/blob/client");
+      for (const file of picked) {
+        if (file.size > MAX_EOD_ATTACHMENT_BYTES) { setError(`"${file.name}" is over the 5MB limit.`); continue; }
+        const blob = await upload(`eod/${authUser?.id}/${Date.now()}-${file.name}`, file, {
+          access: "public",
+          handleUploadUrl: "/api/eod/upload",
+          clientPayload: String(attachments.length),
+        });
+        setAttachments(prev => [...prev, { name: file.name, url: blob.url, size: file.size, type: file.type }]);
+      }
+    } catch {
+      setError("Could not upload file. Please try again.");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const removeAttachment = (url: string) => setAttachments(prev => prev.filter(a => a.url !== url));
+
   const submit = async () => {
     if (!accomplish.trim()) { setError("Please summarize what you accomplished today."); return; }
     setSubmitting(true);
@@ -4173,7 +4210,7 @@ function MyEODView() {
       const res = await fetch("/api/eod", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ summary: accomplish, blockers, tomorrowPlan: priorities.filter(Boolean).join("\n"), taskIds: selectedTaskIds }),
+        body: JSON.stringify({ summary: accomplish, blockers, tomorrowPlan: priorities.filter(Boolean).join("\n"), taskIds: selectedTaskIds, attachments }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Could not submit report."); return; }
@@ -4231,7 +4268,7 @@ function MyEODView() {
             <div className="space-y-2">
               {history.slice(0, 5).map((h: any) => (
                 <div key={h.id} className={`text-xs p-2 rounded-lg ${c("bg-slate-800/50","bg-slate-50")}`}>
-                  <p className={`font-medium ${c("text-slate-300","text-slate-700")}`}>{h.date}</p>
+                  <p className={`font-medium flex items-center gap-1.5 ${c("text-slate-300","text-slate-700")}`}>{h.date}{h.attachments?.length > 0 && <Paperclip size={10}/>}</p>
                   <p className={`mt-0.5 truncate ${c("text-slate-500","text-slate-400")}`}>{h.summary}</p>
                   {h.tasks?.length > 0 && <p className={`mt-1 truncate ${c("text-indigo-400","text-indigo-500")}`}>{h.tasks.join(", ")}</p>}
                 </div>
@@ -4256,10 +4293,30 @@ function MyEODView() {
                 ))}
               </div>
             </div>
+            <div>
+              <FieldLabel label="Attachments"/>
+              <input ref={fileInputRef} type="file" multiple hidden accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" onChange={e => handleFilesSelected(e.target.files)}/>
+              <div className="space-y-2">
+                {attachments.map(a => (
+                  <div key={a.url} className={`flex items-center gap-2 text-xs p-2 rounded-lg ${c("bg-slate-800/50","bg-slate-50")}`}>
+                    <Paperclip size={12} className={c("text-slate-500","text-slate-400")}/>
+                    <a href={a.url} target="_blank" rel="noopener noreferrer" className={`flex-1 truncate hover:underline ${c("text-slate-300","text-slate-700")}`}>{a.name}</a>
+                    <span className={c("text-slate-500","text-slate-400")}>{(a.size / 1024).toFixed(0)} KB</span>
+                    <button onClick={() => removeAttachment(a.url)} className={c("text-slate-500 hover:text-red-400","text-slate-400 hover:text-red-500")}><X size={12}/></button>
+                  </div>
+                ))}
+                {attachments.length < MAX_EOD_ATTACHMENTS && (
+                  <Btn variant="secondary" size="sm" icon={Upload} onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+                    {uploading ? "Uploading..." : "Attach file"}
+                  </Btn>
+                )}
+              </div>
+              <p className={`text-[11px] mt-1.5 ${c("text-slate-500","text-slate-400")}`}>Images or PDF, up to 5MB each, {MAX_EOD_ATTACHMENTS} files max.</p>
+            </div>
           </Card>
           {error && <p className="text-xs text-red-400">{error}</p>}
           <div className={`flex items-center justify-end p-4 rounded-xl border ${c("bg-slate-800/60 border-white/[0.06]","bg-white border-slate-200")}`}>
-            <Btn variant="primary" onClick={submit} icon={Send}>{submitting ? "Submitting..." : "Submit EOD Report"}</Btn>
+            <Btn variant="primary" onClick={submit} icon={Send} disabled={uploading}>{submitting ? "Submitting..." : "Submit EOD Report"}</Btn>
           </div>
         </div>
       </div>
@@ -4322,7 +4379,12 @@ function TeamEODView() {
                   className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${e.submitted ? c("hover:bg-slate-700/20 cursor-pointer","hover:bg-slate-50 cursor-pointer") : ""}`}>
                   <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{e.name}</span></div></td>
                   <td className="px-4 py-3">{e.submitted ? <Badge variant="success">Submitted</Badge> : <Badge variant="warning">Missing</Badge>}</td>
-                  <td className={`px-4 py-3 text-sm max-w-xs truncate ${c("text-slate-400","text-slate-500")}`}>{e.summary || "—"}</td>
+                  <td className={`px-4 py-3 text-sm max-w-xs truncate ${c("text-slate-400","text-slate-500")}`}>
+                    <span className="inline-flex items-center gap-1.5">
+                      {e.summary || "—"}
+                      {e.attachments?.length > 0 && <Paperclip size={11} className="flex-shrink-0"/>}
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -4360,6 +4422,18 @@ function EODDetailModal({ onClose }: { onClose: () => void }) {
           <div>
             <p className={`text-[11px] uppercase tracking-wide mb-1 ${c("text-slate-500","text-slate-400")}`}>Tomorrow's Priorities</p>
             <p className={`whitespace-pre-line ${c("text-slate-300","text-slate-700")}`}>{e.tomorrowPlan}</p>
+          </div>
+        )}
+        {e.attachments?.length > 0 && (
+          <div>
+            <p className={`text-[11px] uppercase tracking-wide mb-1 ${c("text-slate-500","text-slate-400")}`}>Attachments</p>
+            <div className="space-y-1.5">
+              {e.attachments.map((a: EodAttachment) => (
+                <a key={a.url} href={a.url} target="_blank" rel="noopener noreferrer" className={`flex items-center gap-2 text-xs p-2 rounded-lg hover:underline ${c("bg-slate-800/50 text-slate-300","bg-slate-50 text-slate-700")}`}>
+                  <Paperclip size={12}/><span className="truncate">{a.name}</span>
+                </a>
+              ))}
+            </div>
           </div>
         )}
       </div>

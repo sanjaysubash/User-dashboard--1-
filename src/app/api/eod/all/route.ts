@@ -2,6 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, isHrAdmin } from "@/lib/auth";
 
+type Attachment = { name: string; url: string; size: number; type: string };
+function parseAttachments(json: string): Attachment[] {
+  try {
+    const arr = JSON.parse(json);
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
 function parseDateParam(s: string | null): Date {
   if (s) {
     const [y, m, d] = s.split("-").map(Number);
@@ -38,6 +48,7 @@ export async function GET(req: NextRequest) {
         summary: r?.summary ?? null,
         blockers: r?.blockers ?? null,
         tomorrowPlan: r?.tomorrowPlan ?? null,
+        attachments: r ? parseAttachments(r.attachments) : [],
       };
     }),
   });
