@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, canViewAllTasks } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { logAudit } from "@/lib/audit";
 import { notify } from "@/lib/notify";
@@ -11,8 +11,14 @@ export async function GET(req: NextRequest) {
 
   const assigneeName = new URL(req.url).searchParams.get("assignee");
 
+  // Non-admins only ever see tasks they're assigned to or assigned; the manager
+  // hierarchy and super_admin can see everything (optionally narrowed by ?assignee=).
+  const scope = canViewAllTasks(user)
+    ? (assigneeName ? { assignee: { name: assigneeName } } : {})
+    : { OR: [{ assigneeId: user.id }, { assignedById: user.id }] };
+
   const tasks = await prisma.task.findMany({
-    where: assigneeName ? { assignee: { name: assigneeName } } : {},
+    where: scope,
     include: { project: true, assignee: true, assignedBy: true },
     orderBy: { id: "asc" },
   });

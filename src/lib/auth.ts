@@ -83,3 +83,10 @@ export const APPROVER_ROLES = ["super_admin"];
 export function canApprove(user: SafeEmployee): boolean {
   return APPROVER_ROLES.includes(user.role);
 }
+
+// Tasks are private to the assignee/assigner by default; the manager hierarchy
+// (plus super_admin) can see and manage everyone's tasks.
+export const TASK_ADMIN_ROLES = ["super_admin", "manager", "first_level_manager", "second_level_manager", "team_lead"];
+export function canViewAllTasks(user: SafeEmployee): boolean {
+  return TASK_ADMIN_ROLES.includes(user.role);
+}

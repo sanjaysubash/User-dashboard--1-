@@ -885,8 +885,9 @@ function ProjectsPage() {
 
 // ─── TASKS ────────────────────────────────────────────────────────────────────
 
+const TASK_ADMIN_UI_ROLES = ["super-admin", "manager", "1st-level-manager", "2nd-level-manager", "team-lead"];
 function canDragTask(task: any, authUser: AuthUser | null) {
-  return authUser?.id === task.assigneeId || authUser?.id === task.assignedById || authUser?.role === "super-admin";
+  return authUser?.id === task.assigneeId || authUser?.id === task.assignedById || TASK_ADMIN_UI_ROLES.includes(authUser?.role ?? "");
 }
 
 function DraggableTaskCard({ task, canDrag, onClick, children }: { task: any; canDrag: boolean; onClick: () => void; children: React.ReactNode }) {
@@ -900,12 +901,14 @@ function DraggableTaskCard({ task, canDrag, onClick, children }: { task: any; ca
 }
 
 function TaskDropColumn({ status, onDropTask, children }: { status: string; onDropTask: (taskId: number, status: string) => void; children: React.ReactNode }) {
+  const onDropTaskRef = useRef(onDropTask);
+  onDropTaskRef.current = onDropTask;
   const [{ isOver, canDrop }, dropRef] = useDrop(() => ({
     accept: TASK_DRAG_TYPE,
-    drop: (item: { id: number }) => onDropTask(item.id, status),
+    drop: (item: { id: number }) => onDropTaskRef.current(item.id, status),
     collect: (monitor) => ({ isOver: monitor.isOver(), canDrop: monitor.canDrop() }),
   }), [status]);
-  return <div ref={dropRef as any} className={`space-y-3 rounded-xl transition-colors ${isOver && canDrop ? "bg-indigo-500/10 ring-2 ring-indigo-500/40" : ""}`}>{children}</div>;
+  return <div ref={dropRef as any} className={`space-y-3 rounded-xl transition-colors flex-1 min-h-[140px] ${isOver && canDrop ? "bg-indigo-500/10 ring-2 ring-indigo-500/40" : ""}`}>{children}</div>;
 }
 
 function TasksPage() {
@@ -949,7 +952,7 @@ function TasksPage() {
           {columns.map(col=>{
             const colTasks=tasks.filter(t=>t.status===col.id);
             return (
-              <div key={col.id}>
+              <div key={col.id} className="flex flex-col">
                 <div className="flex items-center gap-2 px-1 mb-3"><div className={`w-3 h-3 rounded-sm border-2 ${col.border}`}/><span className={`text-sm font-medium ${c("text-slate-300","text-slate-700")}`}>{col.label}</span><span className={`text-xs px-1.5 py-0.5 rounded ${c("text-slate-600 bg-slate-800","text-slate-500 bg-slate-100")}`}>{colTasks.length}</span></div>
                 <TaskDropColumn status={col.id} onDropTask={dropTask}>
                   {colTasks.map(task=>(
@@ -2327,6 +2330,7 @@ function EmployeeProfilePage() {
   const [performance, setPerformance] = useState<any>(null);
 
   const canViewSensitive = authUser?.id === selectedEmployeeId || authUser?.role === "super-admin";
+  const canViewEmpTasks = authUser?.id === selectedEmployeeId || TASK_ADMIN_UI_ROLES.includes(authUser?.role ?? "");
 
   useEffect(() => {
     fetch(`/api/employees/${selectedEmployeeId}`).then(r => r.json()).then(d => setEmp(d.employee)).catch(() => {});
@@ -2334,7 +2338,7 @@ function EmployeeProfilePage() {
 
   useEffect(() => {
     if (!emp) return;
-    fetch(`/api/tasks?assignee=${encodeURIComponent(emp.name)}`).then(r => r.json()).then(d => setTasks(d.tasks ?? []));
+    if (canViewEmpTasks) fetch(`/api/tasks?assignee=${encodeURIComponent(emp.name)}`).then(r => r.json()).then(d => setTasks(d.tasks ?? []));
     fetch(`/api/projects?memberName=${encodeURIComponent(emp.name)}`).then(r => r.json()).then(d => setEmpProjects(d.projects ?? []));
     fetch("/api/performance").then(r => r.json()).then(setPerformance);
     if (canViewSensitive) {
@@ -2342,7 +2346,7 @@ function EmployeeProfilePage() {
       fetch(`/api/leave?employeeId=${selectedEmployeeId}`).then(r => r.json()).then(setLeave).catch(() => {});
       fetch(`/api/payroll?employeeId=${selectedEmployeeId}`).then(r => r.json()).then(d => setPayroll(d.payslips ?? [])).catch(() => {});
     }
-  }, [emp, canViewSensitive]);
+  }, [emp, canViewSensitive, canViewEmpTasks]);
 
   if (!emp) return null;
 
@@ -2383,7 +2387,7 @@ function EmployeeProfilePage() {
         <div className={`grid grid-cols-2 sm:grid-cols-4 gap-4 mt-5 pt-5 border-t ${c("border-white/[0.06]","border-slate-100")}`}>
           {[
             { label: "Attendance", value: `${emp.attendance}%`, sub: "last 30 days", color: emp.attendance >= 95 ? "text-emerald-500" : "text-amber-500" },
-            { label: "Open Tasks", value: String(tasks.filter((t: any) => t.status !== "done").length), sub: `${tasks.length} total`, color: "text-violet-500" },
+            ...(canViewEmpTasks ? [{ label: "Open Tasks", value: String(tasks.filter((t: any) => t.status !== "done").length), sub: `${tasks.length} total`, color: "text-violet-500" }] : []),
             { label: "Projects", value: String(empProjects.length), sub: "assigned", color: "text-indigo-500" },
             ...(canViewSensitive ? [{ label: "Salary", value: `$${(emp.salary/1000).toFixed(0)}K`, sub: "annual CTC", color: "text-emerald-500" }] : []),
           ].map(s => (
@@ -2424,23 +2428,25 @@ function EmployeeProfilePage() {
               </div>
             </Card>
           </div>
-          <div className="space-y-5">
-            <Card className="p-5">
-              <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Open Tasks</h3>
-              {tasks.filter((t: any) => t.status !== "done").length === 0 && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No open tasks.</p>}
-              <div className="space-y-2.5">
-                {tasks.filter((t: any) => t.status !== "done").slice(0, 6).map((t: any) => (
-                  <div key={t.id} className="flex items-start gap-2.5">
-                    <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${t.priority === "critical" ? "bg-red-500" : t.priority === "high" ? "bg-amber-500" : "bg-indigo-500"}`}/>
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-xs ${c("text-slate-300","text-slate-700")}`}>{t.title}</p>
-                      <p className={`text-[10px] mt-0.5 ${c("text-slate-600","text-slate-400")}`}>{t.project} · Due {t.due}</p>
+          {canViewEmpTasks && (
+            <div className="space-y-5">
+              <Card className="p-5">
+                <h3 className={`text-sm font-semibold mb-4 ${c("text-white","text-slate-900")}`}>Open Tasks</h3>
+                {tasks.filter((t: any) => t.status !== "done").length === 0 && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No open tasks.</p>}
+                <div className="space-y-2.5">
+                  {tasks.filter((t: any) => t.status !== "done").slice(0, 6).map((t: any) => (
+                    <div key={t.id} className="flex items-start gap-2.5">
+                      <div className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${t.priority === "critical" ? "bg-red-500" : t.priority === "high" ? "bg-amber-500" : "bg-indigo-500"}`}/>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-xs ${c("text-slate-300","text-slate-700")}`}>{t.title}</p>
+                        <p className={`text-[10px] mt-0.5 ${c("text-slate-600","text-slate-400")}`}>{t.project} · Due {t.due}</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+          )}
         </div>
       )}
 
@@ -2711,7 +2717,7 @@ function MyWorkPage() {
               {taskCols.map(col => {
                 const colTasks = tasks.filter(t => t.status === col.id);
                 return (
-                  <div key={col.id}>
+                  <div key={col.id} className="flex flex-col">
                     <div className="flex items-center gap-2 px-1 mb-3">
                       <div className={`w-3 h-3 rounded-sm border-2 ${col.border}`} />
                       <span className={`text-sm font-semibold ${c("text-slate-300","text-slate-700")}`}>{col.label}</span>

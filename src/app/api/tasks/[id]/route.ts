@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser, canApprove } from "@/lib/auth";
+import { getCurrentUser, canViewAllTasks } from "@/lib/auth";
 import { formatDate } from "@/lib/format";
 import { notify } from "@/lib/notify";
 import { logAudit } from "@/lib/audit";
@@ -72,6 +72,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const task = await loadTask(id);
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  const canView = task.assigneeId === user.id || task.assignedById === user.id || canViewAllTasks(user);
+  if (!canView) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   return NextResponse.json({ task: serialize(task) });
 }
 
@@ -85,7 +88,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const isAssignee = task.assigneeId === user.id;
   const isAssigner = task.assignedById === user.id;
-  const isAdmin = canApprove(user);
+  const isAdmin = canViewAllTasks(user);
   const canEditFull = isAssigner || isAdmin;
   if (!isAssignee && !canEditFull) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -170,7 +173,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
   const task = await prisma.task.findUnique({ where: { id } });
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  if (task.assignedById !== user.id && !canApprove(user)) {
+  if (task.assignedById !== user.id && !canViewAllTasks(user)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

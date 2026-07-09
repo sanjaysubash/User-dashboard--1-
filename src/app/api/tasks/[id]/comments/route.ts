@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, canViewAllTasks } from "@/lib/auth";
 import { notify } from "@/lib/notify";
 
 type Params = { params: Promise<{ id: string }> };
@@ -12,6 +12,9 @@ export async function POST(req: NextRequest, { params }: Params) {
   const id = Number((await params).id);
   const task = await prisma.task.findUnique({ where: { id } });
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const canView = task.assigneeId === user.id || task.assignedById === user.id || canViewAllTasks(user);
+  if (!canView) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
   const content = body?.content?.trim();

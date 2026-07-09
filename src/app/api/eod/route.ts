@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
+import { notify } from "@/lib/notify";
+import { sendMail } from "@/lib/mail";
 
 function startOfDay(d: Date) {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -134,6 +136,24 @@ export async function POST(req: NextRequest) {
     create: { employeeId: user.id, date: today, summary, blockers: body?.blockers || null, tomorrowPlan: body?.tomorrowPlan || null, taskIds, attachments },
     update: { summary, blockers: body?.blockers || null, tomorrowPlan: body?.tomorrowPlan || null, taskIds, attachments },
   });
+
+  const EOD_ALERT_EXTRA_RECIPIENTS = ["adityayadav6661@gmail.com", "ashika221997@gmail.com"];
+  const admins = await prisma.employee.findMany({ where: { role: "super_admin" } });
+  const eodEmailSubject = `EOD submitted — ${user.name}`;
+  const eodEmailHtml = `<p><strong>${user.name}</strong> has submitted today's EOD report.</p><p><strong>Summary:</strong> ${summary}</p>`;
+  await sendMail(EOD_ALERT_EXTRA_RECIPIENTS, eodEmailSubject, eodEmailHtml);
+  await Promise.all(
+    admins.map((admin) =>
+      Promise.all([
+        notify(admin.id, "eod", "EOD submitted", `${user.name} has submitted an EOD report.`, "eod"),
+        sendMail(
+          admin.email,
+          eodEmailSubject,
+          eodEmailHtml
+        ),
+      ])
+    )
+  );
 
   return NextResponse.json({ ok: true, id: report.id });
 }
