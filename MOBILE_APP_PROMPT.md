@@ -24,6 +24,7 @@ I want a **React Native mobile app that is the same product on a phone** — sam
 - **expo-image-picker** + `expo-document-picker` for attachments
 - API base URL from an env/config value, e.g. `EXPO_PUBLIC_API_URL` — never hardcoded
 
+
 ## Authentication — how it works today and the one change needed
 
 Today the web backend authenticates with an **httpOnly session cookie** (`riaura_session`):

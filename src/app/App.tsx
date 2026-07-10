@@ -140,10 +140,10 @@ function Card({ children, className = "", onClick }: { children: React.ReactNode
   return <div onClick={onClick} className={`${c("bg-slate-800/60 border-white/[0.06]","bg-white border-slate-200")} border rounded-xl ${className}`}>{children}</div>;
 }
 
-function StatCard({ label, value, change, changeLabel, icon: Icon, iconColor, trend }: { label: string; value: string; change?: string; changeLabel?: string; icon: React.ElementType; iconColor: string; trend?: "up"|"down" }) {
+function StatCard({ label, value, change, changeLabel, icon: Icon, iconColor, trend, onClick }: { label: string; value: string; change?: string; changeLabel?: string; icon: React.ElementType; iconColor: string; trend?: "up"|"down"; onClick?: () => void }) {
   const { c } = useTheme();
   return (
-    <div className={`${c("bg-slate-800/60 border-white/[0.06] hover:border-white/10","bg-white border-slate-200 hover:border-slate-300")} border rounded-xl p-5 flex flex-col gap-3 transition-colors`}>
+    <div onClick={onClick} className={`${c("bg-slate-800/60 border-white/[0.06] hover:border-white/10","bg-white border-slate-200 hover:border-slate-300")} border rounded-xl p-5 flex flex-col gap-3 transition-colors ${onClick ? "cursor-pointer" : ""}`}>
       <div className="flex items-center justify-between">
         <span className={`text-[11px] font-semibold tracking-wide uppercase ${c("text-slate-400","text-slate-500")}`}>{label}</span>
         <div className={`w-8 h-8 rounded-lg ${iconColor} flex items-center justify-center`}><Icon size={15} className="text-white" /></div>
@@ -466,6 +466,8 @@ function TopBar({ activePage, onNavigate, onToggleTheme }: { activePage: Page; o
 function DashboardPage() {
   const { c, light } = useTheme();
   const { authUser } = useAuth();
+  const { setSelectedEmployeeId, navigateTo } = useApp();
+  const isAdmin = authUser?.role === "super-admin";
   const col = light?LIGHT:DARK;
   const hour = new Date().getHours();
   const greeting = hour<12?"Good morning":hour<17?"Good afternoon":"Good evening";
@@ -473,11 +475,29 @@ function DashboardPage() {
   const [stats, setStats] = useState<any>(null);
   const [myTasks, setMyTasks] = useState<any[]>([]);
   const [now, setNow] = useState(new Date());
+  const [showPresence, setShowPresence] = useState(false);
+  const [presenceList, setPresenceList] = useState<any[] | null>(null);
   useEffect(() => { fetch("/api/dashboard/stats").then(r => r.json()).then(setStats); }, []);
   useEffect(() => {
     fetch("/api/tasks").then(r => r.json()).then(d => setMyTasks((d.tasks ?? []).filter((t: any) => t.assignee === authUser?.name)));
   }, [authUser]);
   useEffect(() => { const id = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(id); }, []);
+
+  const openPresence = () => {
+    if (!isAdmin) return;
+    setShowPresence(true);
+    if (!presenceList) {
+      fetch("/api/attendance").then(r => r.json()).then(d => {
+        const rows = (d.todayAll ?? []).slice().sort((a: any, b: any) => Number(b.status !== "absent" && b.status !== "not-punched-in") - Number(a.status !== "absent" && a.status !== "not-punched-in"));
+        setPresenceList(rows);
+      });
+    }
+  };
+  const openEmployeeFromPresence = (id: number) => {
+    setShowPresence(false);
+    setSelectedEmployeeId(id);
+    navigateTo("employee-profile");
+  };
 
   return (
     <div className="space-y-6">
@@ -493,8 +513,8 @@ function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        <StatCard label="Total Employees" value={stats ? String(stats.totalEmployees) : "…"} icon={Users} iconColor="bg-indigo-600/40" trend="up"/>
-        <StatCard label="Present Today" value={stats ? String(stats.presentToday) : "…"} change={stats ? `${stats.presentPct}%` : undefined} changeLabel=" attendance" icon={CheckCircle2} iconColor="bg-emerald-600/40" trend="up"/>
+        <StatCard label="Total Employees" value={stats ? String(stats.totalEmployees) : "…"} icon={Users} iconColor="bg-indigo-600/40" trend="up" onClick={isAdmin ? openPresence : undefined}/>
+        <StatCard label="Present Today" value={stats ? String(stats.presentToday) : "…"} change={stats ? `${stats.presentPct}%` : undefined} changeLabel=" attendance" icon={CheckCircle2} iconColor="bg-emerald-600/40" trend="up" onClick={isAdmin ? openPresence : undefined}/>
         <StatCard label="Active Projects" value={stats ? String(stats.activeProjects) : "…"} icon={FolderKanban} iconColor="bg-violet-600/40" trend="up"/>
         <StatCard label="Task Completion" value={stats ? `${stats.taskCompletionPct}%` : "…"} icon={TrendingUp} iconColor="bg-amber-600/40" trend="up"/>
         <StatCard label="Overdue Tasks" value={stats ? String(stats.overdueTasks) : "…"} icon={AlertCircle} iconColor="bg-red-600/40" trend={stats?.overdueTasks > 0 ? "down" : "up"}/>
@@ -571,6 +591,35 @@ function DashboardPage() {
           </ResponsiveContainer>
         )}
       </Card>
+
+      {showPresence && (
+        <ModalOverlay
+          title="Employee Attendance Today"
+          subtitle={presenceList ? `${presenceList.filter((e:any)=>e.status!=="absent"&&e.status!=="not-punched-in").length} of ${presenceList.length} present` : undefined}
+          onClose={() => setShowPresence(false)}
+          size="md"
+        >
+          {!presenceList ? (
+            <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>Loading…</p>
+          ) : (
+            <div className="space-y-1 max-h-[60vh] overflow-y-auto">
+              {presenceList.map((e: any) => (
+                <div key={e.id} onClick={() => openEmployeeFromPresence(e.id)} className={`flex items-center gap-3 p-2.5 rounded-lg cursor-pointer transition-colors ${c("hover:bg-slate-800/60","hover:bg-slate-50")}`}>
+                  <Avatar initials={e.avatar} color={e.avatarColor} size="sm"/>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-medium truncate ${c("text-slate-200","text-slate-800")}`}>{e.name}</p>
+                    <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>{e.dept}</p>
+                  </div>
+                  {e.status==="present" && <Badge variant="success">Present</Badge>}
+                  {e.status==="late" && <Badge variant="warning">Late</Badge>}
+                  {e.status==="absent" && <Badge variant="danger">Absent</Badge>}
+                  {e.status==="not-punched-in" && <Badge variant="default">Not In</Badge>}
+                </div>
+              ))}
+            </div>
+          )}
+        </ModalOverlay>
+      )}
     </div>
   );
 }
@@ -1110,10 +1159,12 @@ function CalendarPage() {
 function AttendancePage() {
   const { c } = useTheme();
   const { authUser } = useAuth();
+  const { setSelectedEmployeeId, navigateTo } = useApp();
   const [data, setData] = useState<any>(null);
   const [busy, setBusy] = useState(false);
   const [punchError, setPunchError] = useState("");
   const isAdmin = authUser?.role === "super-admin";
+  const openProfile = (id: number) => { setSelectedEmployeeId(id); navigateTo("employee-profile"); };
 
   const now0 = new Date();
   const [calCursor, setCalCursor] = useState({ year: now0.getFullYear(), month: now0.getMonth()+1 });
@@ -1266,7 +1317,7 @@ function AttendancePage() {
               <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Employee","Dept","Punch In","Punch Out","Status"].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
               <tbody>
                 {data.todayAll.map((e: any)=>(
-                  <tr key={e.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
+                  <tr key={e.id} onClick={()=>openProfile(e.id)} className={`border-b cursor-pointer ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
                     <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{e.name}</span></div></td>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{e.dept}</td>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{e.punchInTime?fmtTime(e.punchInTime):"—"}</td>
@@ -1287,7 +1338,7 @@ function AttendancePage() {
               <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Employee","Dept","Rate"].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
               <tbody>
                 {data.team.map((e: any)=>(
-                  <tr key={e.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
+                  <tr key={e.id} onClick={()=>openProfile(e.id)} className={`border-b cursor-pointer ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
                     <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{e.name}</span></div></td>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{e.dept}</td>
                     <td className="px-4 py-3"><div className="flex items-center gap-2"><ProgressBar value={e.attendance} color={e.attendance>=95?"bg-emerald-500":"bg-amber-500"}/><span className={`text-xs w-10 ${c("text-slate-400","text-slate-500")}`}>{e.attendance}%</span></div></td>
