@@ -28,7 +28,13 @@ export async function POST(req: NextRequest) {
 
   const { token, expiresAt } = await createSession(employee.id, userAgent, ip);
   const permissions = await getPermissionsForRole(employee.role);
-  const res = NextResponse.json({ user: toAuthUser(employee, permissions) });
+  // The mobile app can't use httpOnly cookies; it gets the raw token in the
+  // body and sends it back as an Authorization: Bearer header (see lib/auth).
+  const isMobileClient = req.headers.get("x-client") === "mobile";
+  const res = NextResponse.json({
+    user: toAuthUser(employee, permissions),
+    ...(isMobileClient ? { token } : {}),
+  });
   setSessionCookie(res, token, expiresAt);
   await logAudit(employee, "Logged in", "Auth", "info", ip);
   return res;

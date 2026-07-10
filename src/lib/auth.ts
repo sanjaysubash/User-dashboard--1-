@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from "crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import type { NextResponse } from "next/server";
 import type { Employee } from "@prisma/client";
 import { prisma } from "./prisma";
@@ -32,9 +32,20 @@ export async function createSession(employeeId: number, userAgent?: string | nul
   return { token, expiresAt };
 }
 
-export async function getCurrentSessionTokenHash(): Promise<string | null> {
+// The web app authenticates via the httpOnly session cookie; the mobile app
+// sends the same raw token as an Authorization: Bearer header instead.
+async function getRawSessionToken(): Promise<string | null> {
   const store = await cookies();
-  const token = store.get(SESSION_COOKIE)?.value;
+  const cookieToken = store.get(SESSION_COOKIE)?.value;
+  if (cookieToken) return cookieToken;
+  const headerStore = await headers();
+  const authHeader = headerStore.get("authorization");
+  if (authHeader?.startsWith("Bearer ")) return authHeader.slice("Bearer ".length).trim() || null;
+  return null;
+}
+
+export async function getCurrentSessionTokenHash(): Promise<string | null> {
+  const token = await getRawSessionToken();
   return token ? hashToken(token) : null;
 }
 
@@ -53,16 +64,14 @@ export function clearSessionCookie(res: NextResponse) {
 }
 
 export async function destroyCurrentSession() {
-  const store = await cookies();
-  const token = store.get(SESSION_COOKIE)?.value;
+  const token = await getRawSessionToken();
   if (token) {
     await prisma.session.deleteMany({ where: { tokenHash: hashToken(token) } });
   }
 }
 
 export async function getCurrentUser(): Promise<SafeEmployee | null> {
-  const store = await cookies();
-  const token = store.get(SESSION_COOKIE)?.value;
+  const token = await getRawSessionToken();
   if (!token) return null;
   const session = await prisma.session.findUnique({
     where: { tokenHash: hashToken(token) },
