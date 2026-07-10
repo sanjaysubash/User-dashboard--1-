@@ -1806,6 +1806,8 @@ function PayrollPage() {
   const [pdfs, setPdfs] = useState<Record<number, { url: string; name: string }>>({});
   const [grantingId, setGrantingId] = useState<number | null>(null);
   const [uploadingId, setUploadingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const uploadTargetId = useRef<number | null>(null);
@@ -1842,17 +1844,49 @@ function PayrollPage() {
     setGrantingId(employeeId);
     setError("");
     try {
+      const existing = data.employees.find((e: any) => e.employeeId === employeeId);
       const attachment = pdfs[employeeId];
+      const attachmentUrl = attachment?.url ?? existing?.attachmentUrl ?? undefined;
+      const attachmentName = attachment?.name ?? existing?.attachmentName ?? undefined;
       const res = await fetch("/api/payroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employeeId, amount, attachmentUrl: attachment?.url, attachmentName: attachment?.name }),
+        body: JSON.stringify({ employeeId, amount, attachmentUrl, attachmentName }),
       });
       const d = await res.json();
       if (!res.ok) { setError(d.error || "Could not grant payroll."); return; }
+      setEditingId(null);
+      setPdfs(p => { const n = { ...p }; delete n[employeeId]; return n; });
       await load();
     } finally {
       setGrantingId(null);
+    }
+  };
+
+  const startEdit = (e: any) => {
+    setError("");
+    setEditingId(e.employeeId);
+    setAmounts(a => ({ ...a, [e.employeeId]: String(e.amount) }));
+  };
+
+  const cancelEdit = (employeeId: number) => {
+    setEditingId(null);
+    setAmounts(a => { const n = { ...a }; delete n[employeeId]; return n; });
+    setPdfs(p => { const n = { ...p }; delete n[employeeId]; return n; });
+  };
+
+  const remove = async (e: any) => {
+    if (!e.id) return;
+    if (!window.confirm(`Delete the ${data.month} payroll record for ${e.name}? This cannot be undone.`)) return;
+    setDeletingId(e.employeeId);
+    setError("");
+    try {
+      const res = await fetch(`/api/payroll/${e.id}`, { method: "DELETE" });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) { setError(d.error || "Could not delete payroll record."); return; }
+      await load();
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -1873,29 +1907,48 @@ function PayrollPage() {
           <table className="w-full">
             <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Employee","Amount","Payslip PDF","Status",""].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
             <tbody>
-              {data.employees.map((e:any)=>(
+              {data.employees.map((e:any)=>{
+                const isEditing = editingId === e.employeeId;
+                const isLocked = e.status === "paid" && !isEditing;
+                return (
                 <tr key={e.employeeId} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
                   <td className="px-4 py-3"><div className="flex items-center gap-2"><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{e.name}</span></div></td>
                   <td className="px-4 py-3">
-                    {e.status==="paid"
+                    {isLocked
                       ? <span className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>₹{e.amount.toLocaleString("en-IN")}</span>
                       : <FInput value={amounts[e.employeeId] ?? ""} onChange={v=>setAmounts(a=>({...a,[e.employeeId]:v}))} type="number" placeholder="Enter amount" className="max-w-[160px]"/>}
                   </td>
                   <td className="px-4 py-3">
-                    {e.status==="paid"
+                    {isLocked
                       ? (e.attachmentUrl
                           ? <a href={e.attachmentUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-indigo-500 hover:underline"><Paperclip size={12}/>{e.attachmentName || "View PDF"}</a>
                           : <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No PDF</span>)
                       : (pdfs[e.employeeId]
                           ? <span className="flex items-center gap-1 text-xs text-emerald-500"><Paperclip size={12}/>{pdfs[e.employeeId].name}</span>
-                          : <Btn variant="secondary" size="sm" icon={Upload} onClick={()=>pickFile(e.employeeId)} disabled={uploadingId===e.employeeId}>{uploadingId===e.employeeId?"Uploading...":"Attach PDF"}</Btn>)}
+                          : (isEditing && e.attachmentUrl
+                              ? <div className="flex items-center gap-2">
+                                  <a href={e.attachmentUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-indigo-500 hover:underline"><Paperclip size={12}/>{e.attachmentName || "View PDF"}</a>
+                                  <Btn variant="secondary" size="sm" icon={Upload} onClick={()=>pickFile(e.employeeId)} disabled={uploadingId===e.employeeId}>{uploadingId===e.employeeId?"Uploading...":"Replace"}</Btn>
+                                </div>
+                              : <Btn variant="secondary" size="sm" icon={Upload} onClick={()=>pickFile(e.employeeId)} disabled={uploadingId===e.employeeId}>{uploadingId===e.employeeId?"Uploading...":"Attach PDF"}</Btn>))}
                   </td>
                   <td className="px-4 py-3">{e.status==="paid" ? <Badge variant="success">Paid</Badge> : <Badge variant="warning">Pending</Badge>}</td>
                   <td className="px-4 py-3">
-                    {e.status!=="paid" && <Btn size="sm" onClick={()=>grant(e.employeeId)} disabled={grantingId===e.employeeId}>{grantingId===e.employeeId?"Granting...":"Grant"}</Btn>}
+                    <div className="flex items-center gap-2">
+                      {e.status!=="paid" && <Btn size="sm" onClick={()=>grant(e.employeeId)} disabled={grantingId===e.employeeId}>{grantingId===e.employeeId?"Granting...":"Grant"}</Btn>}
+                      {isLocked && <>
+                        <Btn variant="secondary" size="sm" icon={Edit2} onClick={()=>startEdit(e)}>Edit</Btn>
+                        <Btn variant="danger" size="sm" icon={Trash2} onClick={()=>remove(e)} disabled={deletingId===e.employeeId}>{deletingId===e.employeeId?"Deleting...":"Delete"}</Btn>
+                      </>}
+                      {e.status==="paid" && isEditing && <>
+                        <Btn size="sm" onClick={()=>grant(e.employeeId)} disabled={grantingId===e.employeeId}>{grantingId===e.employeeId?"Saving...":"Save"}</Btn>
+                        <Btn variant="secondary" size="sm" onClick={()=>cancelEdit(e.employeeId)}>Cancel</Btn>
+                      </>}
+                    </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

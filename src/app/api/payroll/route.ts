@@ -50,6 +50,7 @@ export async function GET(req: NextRequest) {
   const rows = employees.map((e) => {
     const rec = byEmployee.get(e.id);
     return {
+      id: rec?.id ?? null,
       employeeId: e.id,
       name: e.name,
       avatar: e.avatarInitials,
