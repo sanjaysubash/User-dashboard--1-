@@ -2716,6 +2716,16 @@ function ReportsPage() {
 
 // ─── EMPLOYEE PROFILE PAGE ───────────────────────────────────────────────────
 
+const ROLE_LEVEL_OPTIONS = [
+  { value: "employee", label: "Employee" },
+  { value: "team-lead", label: "Team Lead" },
+  { value: "manager", label: "Manager" },
+  { value: "2nd-level-manager", label: "2nd Level Manager" },
+  { value: "1st-level-manager", label: "1st Level Manager" },
+  { value: "hr-admin", label: "HR Admin" },
+  { value: "super-admin", label: "Super Admin" },
+];
+
 function EmployeeProfilePage() {
   const { c } = useTheme();
   const { authUser } = useAuth();
@@ -2728,8 +2738,30 @@ function EmployeeProfilePage() {
   const [leave, setLeave] = useState<any>(null);
   const [payroll, setPayroll] = useState<any[]>([]);
   const [performance, setPerformance] = useState<any>(null);
+  const [editingRole, setEditingRole] = useState(false);
+  const [roleBusy, setRoleBusy] = useState(false);
+  const [roleError, setRoleError] = useState("");
 
   const canViewSensitive = authUser?.id === selectedEmployeeId || authUser?.role === "super-admin";
+  const canEditRole = authUser?.role === "super-admin";
+
+  const changeRoleLevel = async (roleLevel: string) => {
+    setRoleBusy(true);
+    setRoleError("");
+    try {
+      const res = await fetch(`/api/employees/${selectedEmployeeId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roleLevel }),
+      });
+      const d = await res.json();
+      if (!res.ok) { setRoleError(d.error || "Could not change role level."); return; }
+      setEmp((prev: any) => prev && { ...prev, roleLevel });
+      setEditingRole(false);
+    } finally {
+      setRoleBusy(false);
+    }
+  };
   const canViewEmpTasks = authUser?.id === selectedEmployeeId || TASK_ADMIN_UI_ROLES.includes(authUser?.role ?? "");
 
   useEffect(() => {
@@ -2773,7 +2805,29 @@ function EmployeeProfilePage() {
                 <StatusBadge status={emp.status}/>
               </div>
               <p className={`text-sm mb-2 ${c("text-slate-400","text-slate-500")}`}>{emp.role}</p>
-              <div className="flex items-center gap-1 mb-3"><Badge variant="info">{emp.dept}</Badge></div>
+              <div className="flex items-center gap-2 mb-3 flex-wrap">
+                <Badge variant="info">{emp.dept}</Badge>
+                {editingRole ? (
+                  <div className="flex items-center gap-1.5">
+                    <select defaultValue={emp.roleLevel} disabled={roleBusy}
+                      onChange={e => changeRoleLevel(e.target.value)}
+                      className={`text-xs rounded-lg px-2 py-1 border focus:outline-none ${c("bg-slate-800/60 border-white/[0.08] text-slate-300","bg-white border-slate-200 text-slate-700")}`}>
+                      {ROLE_LEVEL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <button onClick={() => setEditingRole(false)} className={`text-xs ${c("text-slate-500 hover:text-slate-300","text-slate-400 hover:text-slate-600")}`}>Cancel</button>
+                  </div>
+                ) : (
+                  <>
+                    <Badge variant="default">{ROLE_LEVEL_OPTIONS.find(o => o.value === emp.roleLevel)?.label ?? emp.roleLevel}</Badge>
+                    {canEditRole && (
+                      <button title="Change role level" onClick={() => setEditingRole(true)} className={`w-6 h-6 rounded flex items-center justify-center ${c("text-slate-500 hover:text-indigo-400 hover:bg-slate-700/60","text-slate-400 hover:text-indigo-500 hover:bg-slate-100")}`}>
+                        <Edit2 size={12}/>
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+              {roleError && <p className="text-xs text-red-500 mb-2">{roleError}</p>}
               <div className={`grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-1.5 text-xs ${c("text-slate-500","text-slate-400")}`}>
                 {emp.location && <span className="flex items-center gap-1.5"><MapPin size={11}/>{emp.location}</span>}
                 <span className="flex items-center gap-1.5"><Mail size={11}/><span className="truncate">{emp.email}</span></span>

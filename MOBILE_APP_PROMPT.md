@@ -17,7 +17,7 @@ I want a **React Native mobile app that is the same product on a phone** — sam
 - **Expo** (managed workflow) + **Expo Router** (file-based routing) + **TypeScript**
 - **NativeWind** for styling (the web app is Tailwind — classes translate almost 1:1)
 - **TanStack Query** for server state, fetching, and cache invalidation
-- **expo-secure-store** for the auth token
+- **expo-secure-store** for the auth tokenmake 
 - **lucide-react-native** for icons (web uses `lucide-react`, so every icon maps 1:1)
 - **date-fns** for dates
 - **react-native-gifted-charts** or **Victory Native** for bar charts (web uses Recharts)

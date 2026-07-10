@@ -86,6 +86,10 @@ export function isHrAdmin(user: SafeEmployee): boolean {
   return HR_ROLES.includes(user.role);
 }
 
+export function isSuperAdmin(user: SafeEmployee): boolean {
+  return user.role === "super_admin";
+}
+
 // Leave approval is restricted to super_admin (currently Aashika N and Venkat B,
 // the CEO and Co-Founder) rather than the broader manager hierarchy.
 export const APPROVER_ROLES = ["super_admin"];

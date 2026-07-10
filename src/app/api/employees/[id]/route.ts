@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUser, isHrAdmin } from "@/lib/auth";
+import { getCurrentUser, isHrAdmin, isSuperAdmin } from "@/lib/auth";
 import { getAttendanceRates } from "@/lib/attendance";
 import { formatDate } from "@/lib/format";
 import { logAudit } from "@/lib/audit";
+import { DB_TO_UI_ROLE, UI_TO_DB_ROLE, ROLE_LABELS } from "@/lib/roles";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -34,6 +36,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       id: employee.id,
       name: employee.name,
       role: employee.title,
+      roleLevel: DB_TO_UI_ROLE[employee.role] ?? employee.role,
       dept: employee.department?.name ?? "",
       email: employee.email,
       phone: employee.phone ?? "",
@@ -77,6 +80,16 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     } else {
       data.managerId = null;
     }
+  }
+
+  if ("roleLevel" in body) {
+    if (!isSuperAdmin(user)) {
+      return NextResponse.json({ error: "Only a super admin can change an employee's role level." }, { status: 403 });
+    }
+    const dbRole = UI_TO_DB_ROLE[body.roleLevel] as Role | undefined;
+    if (!dbRole) return NextResponse.json({ error: "Invalid role level." }, { status: 400 });
+    data.role = dbRole;
+    data.roleLabel = ROLE_LABELS[dbRole];
   }
 
   const employee = await prisma.employee.update({ where: { id }, data });
