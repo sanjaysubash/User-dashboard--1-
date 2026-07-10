@@ -110,7 +110,7 @@ const useModal = () => useContext(ModalCtx);
 type Page =
   | "dashboard" | "employees" | "departments" | "teams"
   | "projects" | "tasks" | "calendar" | "attendance" | "leave"
-  | "payroll" | "kpi" | "okr" | "analytics"
+  | "payroll" | "payslip" | "kpi" | "okr" | "analytics"
   | "reports" | "knowledge" | "settings"
   | "notifications" | "meetings" | "roles" | "audit" | "billing" | "profile"
   | "employee-profile" | "my-work" | "eod" | "payroll-expenses" | "expense-claims" | "expense-log";
@@ -238,7 +238,7 @@ const navGroups = [
   { label:"Overview", items:[{id:"dashboard",label:"Dashboard",icon:LayoutDashboard},{id:"my-work",label:"My Work",icon:User}] },
   { label:"Organization", items:[{id:"employees",label:"Employees",icon:Users},{id:"departments",label:"Departments",icon:Building2},{id:"teams",label:"Teams",icon:Network}] },
   { label:"Work", items:[{id:"projects",label:"Projects",icon:FolderKanban},{id:"tasks",label:"Tasks",icon:CheckSquare},{id:"calendar",label:"Calendar",icon:Calendar},{id:"meetings",label:"Meetings",icon:Video}] },
-  { label:"HR", items:[{id:"attendance",label:"Attendance",icon:Clock},{id:"leave",label:"Leave",icon:PlaneTakeoff},{id:"payroll",label:"Payroll",icon:DollarSign},{id:"payroll-expenses",label:"Expenses",icon:BarChart3},{id:"expense-claims",label:"Expense Claims",icon:Receipt},{id:"expense-log",label:"Expense Log",icon:Wallet}] },
+  { label:"HR", items:[{id:"attendance",label:"Attendance",icon:Clock},{id:"leave",label:"Leave",icon:PlaneTakeoff},{id:"payroll",label:"Payroll",icon:DollarSign},{id:"payslip",label:"Payslip",icon:Receipt},{id:"payroll-expenses",label:"Expenses",icon:BarChart3},{id:"expense-claims",label:"Expense Claims",icon:Receipt},{id:"expense-log",label:"Expense Log",icon:Wallet}] },
   { label:"Analytics", items:[{id:"kpi",label:"KPI",icon:Target},{id:"okr",label:"OKR",icon:Zap},{id:"analytics",label:"Analytics",icon:BarChart3},{id:"reports",label:"Reports",icon:FileBarChart}] },
   { label:"Workspace", items:[{id:"knowledge",label:"Knowledge Base",icon:BookOpen},{id:"notifications",label:"Notifications",icon:Bell},{id:"eod",label:"EOD Report",icon:FileText}] },
   { label:"Admin", items:[{id:"settings",label:"Settings",icon:Settings},{id:"roles",label:"Roles & Permissions",icon:ShieldCheck},{id:"audit",label:"Audit Logs",icon:Activity},{id:"billing",label:"Billing",icon:CreditCard}] },
@@ -256,6 +256,8 @@ function Sidebar({ activePage, onNavigate, collapsed, onToggle }: { activePage: 
   const hasAccess = (id: string) => {
     if (isVignesh) return id === "calendar" || id === "expense-log";
     if (id === "expense-log") return authUser?.role === "super-admin";
+    // Every employee can see their own Payslip page regardless of role permissions.
+    if (id === "payslip") return true;
     return perms.includes("*") || perms.includes(id);
   };
   const [unreadCount, setUnreadCount] = useState(0);
@@ -1801,11 +1803,38 @@ function PayrollPage() {
   const { c } = useTheme();
   const [data, setData] = useState<any>(null);
   const [amounts, setAmounts] = useState<Record<number, string>>({});
+  const [pdfs, setPdfs] = useState<Record<number, { url: string; name: string }>>({});
   const [grantingId, setGrantingId] = useState<number | null>(null);
+  const [uploadingId, setUploadingId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const uploadTargetId = useRef<number | null>(null);
 
   const load = () => fetch("/api/payroll").then(r => r.json()).then(setData);
   useEffect(() => { load(); }, []);
+
+  const pickFile = (employeeId: number) => {
+    uploadTargetId.current = employeeId;
+    fileInputRef.current?.click();
+  };
+
+  const onFileSelected = async (files: FileList | null) => {
+    const file = files?.[0];
+    const employeeId = uploadTargetId.current;
+    if (!file || !employeeId) return;
+    setUploadingId(employeeId);
+    setError("");
+    try {
+      const { uploadToCloudinary } = await import("@/lib/uploadToCloudinary");
+      const result = await uploadToCloudinary(file, "/api/payroll/upload", { employeeId: String(employeeId) });
+      setPdfs(p => ({ ...p, [employeeId]: result }));
+    } catch (err: any) {
+      setError(err.message || "Could not upload payslip PDF.");
+    } finally {
+      setUploadingId(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   const grant = async (employeeId: number) => {
     const amount = Number(amounts[employeeId]);
@@ -1813,10 +1842,11 @@ function PayrollPage() {
     setGrantingId(employeeId);
     setError("");
     try {
+      const attachment = pdfs[employeeId];
       const res = await fetch("/api/payroll", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ employeeId, amount }),
+        body: JSON.stringify({ employeeId, amount, attachmentUrl: attachment?.url, attachmentName: attachment?.name }),
       });
       const d = await res.json();
       if (!res.ok) { setError(d.error || "Could not grant payroll."); return; }
@@ -1831,6 +1861,7 @@ function PayrollPage() {
   return (
     <div>
       <PageHeader title="Payroll" subtitle={`Grant salary payouts for ${data.month}`}/>
+      <input ref={fileInputRef} type="file" hidden accept="application/pdf" onChange={e => onFileSelected(e.target.files)}/>
       {error && <p className="text-xs text-red-400 mb-3">{error}</p>}
       <div className="grid grid-cols-2 gap-4 mb-6">
         <StatCard label="Paid" value={String(data.paidCount)} icon={CheckCircle2} iconColor="bg-emerald-600/40" trend="up"/>
@@ -1840,7 +1871,7 @@ function PayrollPage() {
         <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Employees — {data.month}</h3></div>
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Employee","Amount","Status",""].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
+            <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Employee","Amount","Payslip PDF","Status",""].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
             <tbody>
               {data.employees.map((e:any)=>(
                 <tr key={e.employeeId} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
@@ -1850,9 +1881,60 @@ function PayrollPage() {
                       ? <span className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>₹{e.amount.toLocaleString("en-IN")}</span>
                       : <FInput value={amounts[e.employeeId] ?? ""} onChange={v=>setAmounts(a=>({...a,[e.employeeId]:v}))} type="number" placeholder="Enter amount" className="max-w-[160px]"/>}
                   </td>
+                  <td className="px-4 py-3">
+                    {e.status==="paid"
+                      ? (e.attachmentUrl
+                          ? <a href={e.attachmentUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-indigo-500 hover:underline"><Paperclip size={12}/>{e.attachmentName || "View PDF"}</a>
+                          : <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No PDF</span>)
+                      : (pdfs[e.employeeId]
+                          ? <span className="flex items-center gap-1 text-xs text-emerald-500"><Paperclip size={12}/>{pdfs[e.employeeId].name}</span>
+                          : <Btn variant="secondary" size="sm" icon={Upload} onClick={()=>pickFile(e.employeeId)} disabled={uploadingId===e.employeeId}>{uploadingId===e.employeeId?"Uploading...":"Attach PDF"}</Btn>)}
+                  </td>
                   <td className="px-4 py-3">{e.status==="paid" ? <Badge variant="success">Paid</Badge> : <Badge variant="warning">Pending</Badge>}</td>
                   <td className="px-4 py-3">
                     {e.status!=="paid" && <Btn size="sm" onClick={()=>grant(e.employeeId)} disabled={grantingId===e.employeeId}>{grantingId===e.employeeId?"Granting...":"Grant"}</Btn>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function PayslipPage() {
+  const { c } = useTheme();
+  const { authUser } = useAuth();
+  const [payslips, setPayslips] = useState<any[] | null>(null);
+
+  useEffect(() => {
+    if (!authUser) return;
+    fetch(`/api/payroll?employeeId=${authUser.id}`).then(r => r.json()).then(d => setPayslips(d.payslips ?? []));
+  }, [authUser]);
+
+  if (!payslips) return null;
+
+  return (
+    <div>
+      <PageHeader title="Payslip" subtitle="Your payroll history — visible only to you"/>
+      <Card>
+        <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Payslip History</h3></div>
+        {payslips.length === 0 && <p className={`p-4 text-xs ${c("text-slate-500","text-slate-400")}`}>No payslips have been issued yet.</p>}
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Month","Amount","Status","Payslip"].map(h => <th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
+            <tbody>
+              {payslips.map((p: any) => (
+                <tr key={p.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")}`}>
+                  <td className={`px-4 py-3 text-sm font-medium ${c("text-slate-300","text-slate-700")}`}>{p.month}</td>
+                  <td className={`px-4 py-3 text-sm font-semibold ${c("text-white","text-slate-900")}`}>₹{p.amount.toLocaleString("en-IN")}</td>
+                  <td className="px-4 py-3">{p.status === "paid" ? <Badge variant="success">Paid</Badge> : <Badge variant="warning">Pending</Badge>}</td>
+                  <td className="px-4 py-3">
+                    {p.attachmentUrl
+                      ? <a href={p.attachmentUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-indigo-500 hover:underline"><Download size={12}/>{p.attachmentName || "Download"}</a>
+                      : <span className={`text-xs ${c("text-slate-500","text-slate-400")}`}>—</span>}
                   </td>
                 </tr>
               ))}
@@ -5026,7 +5108,7 @@ function PageContent({ page }: { page: Page }) {
     <div className="p-6 overflow-y-auto h-full">
       {page==="dashboard"&&<DashboardPage/>}{page==="employees"&&<EmployeesPage/>}{page==="departments"&&<DepartmentsPage/>}{page==="teams"&&<TeamsPage/>}
       {page==="projects"&&<ProjectsPage/>}{page==="tasks"&&<TasksPage/>}{page==="calendar"&&<CalendarPage/>}{page==="meetings"&&<MeetingsPage/>}
-      {page==="attendance"&&<AttendancePage/>}{page==="leave"&&<LeavePage/>}{page==="payroll"&&<PayrollPage/>}
+      {page==="attendance"&&<AttendancePage/>}{page==="leave"&&<LeavePage/>}{page==="payroll"&&<PayrollPage/>}{page==="payslip"&&<PayslipPage/>}
       {page==="kpi"&&<KPIPage/>}{page==="okr"&&<OKRPage/>}{page==="analytics"&&<AnalyticsPage/>}{page==="reports"&&<ReportsPage/>}
       {page==="knowledge"&&<KnowledgePage/>}
       {page==="settings"&&<SettingsPage/>}{page==="notifications"&&<NotificationsPage/>}{page==="roles"&&<RolesPage/>}

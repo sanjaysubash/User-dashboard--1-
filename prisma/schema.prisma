@@ -303,16 +303,18 @@ model Meeting {
 // ─── PAYROLL ──────────────────────────────────────────────────────────────────
 
 model PayrollRecord {
-  id          Int       @id @default(autoincrement())
-  employeeId  Int
-  employee    Employee  @relation(fields: [employeeId], references: [id])
-  month       String    // "2026-06"
-  amount      Int       @default(0)
-  status      String    @default("pending") // pending | paid
-  grantedById Int?
-  grantedBy   Employee? @relation("PayrollGrantedBy", fields: [grantedById], references: [id])
-  grantedAt   DateTime?
-  createdAt   DateTime  @default(now())
+  id             Int       @id @default(autoincrement())
+  employeeId     Int
+  employee       Employee  @relation(fields: [employeeId], references: [id])
+  month          String    // "2026-06"
+  amount         Int       @default(0)
+  status         String    @default("pending") // pending | paid
+  attachmentUrl  String?
+  attachmentName String?
+  grantedById    Int?
+  grantedBy      Employee? @relation("PayrollGrantedBy", fields: [grantedById], references: [id])
+  grantedAt      DateTime?
+  createdAt      DateTime  @default(now())
 
   @@unique([employeeId, month])
 }

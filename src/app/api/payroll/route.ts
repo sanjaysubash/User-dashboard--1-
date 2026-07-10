@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser, isHrAdmin, canApprove } from "@/lib/auth";
 import { logAudit } from "@/lib/audit";
 import { notify } from "@/lib/notify";
+import { sendMail } from "@/lib/mail";
 
 function currentMonth() {
   const d = new Date();
@@ -30,6 +31,8 @@ export async function GET(req: NextRequest) {
         month: monthLabel(r.month),
         amount: r.amount,
         status: r.status,
+        attachmentUrl: r.attachmentUrl,
+        attachmentName: r.attachmentName,
       })),
     });
   }
@@ -54,6 +57,8 @@ export async function GET(req: NextRequest) {
       amount: rec?.amount ?? 0,
       status: rec?.status ?? "pending",
       grantedAt: rec?.grantedAt ?? null,
+      attachmentUrl: rec?.attachmentUrl ?? null,
+      attachmentName: rec?.attachmentName ?? null,
     };
   });
 
@@ -73,6 +78,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const employeeId = Number(body.employeeId);
   const amount = Math.round(Number(body.amount));
+  const attachmentUrl = typeof body.attachmentUrl === "string" ? body.attachmentUrl : null;
+  const attachmentName = typeof body.attachmentName === "string" ? body.attachmentName : null;
   if (!employeeId || !Number.isFinite(amount) || amount <= 0) {
     return NextResponse.json({ error: "A valid employee and amount are required." }, { status: 400 });
   }
@@ -86,12 +93,17 @@ export async function POST(req: NextRequest) {
 
   await prisma.payrollRecord.upsert({
     where: { employeeId_month: { employeeId, month } },
-    update: { amount, status: "paid", grantedById: user.id, grantedAt: now },
-    create: { employeeId, month, amount, status: "paid", grantedById: user.id, grantedAt: now },
+    update: { amount, status: "paid", attachmentUrl, attachmentName, grantedById: user.id, grantedAt: now },
+    create: { employeeId, month, amount, status: "paid", attachmentUrl, attachmentName, grantedById: user.id, grantedAt: now },
   });
 
   await notify(employeeId, "payroll", "Payroll processed", `Your payroll for ${label} has been granted.`, "payroll");
   await logAudit(user, `Granted ${label} payroll for ${employee.name}`, "Payroll");
+  await sendMail(
+    employee.email,
+    `Your payslip for ${label} is ready`,
+    `<p>Hi ${employee.name},</p><p>Your payroll for <strong>${label}</strong> (₹${amount.toLocaleString("en-IN")}) has been processed${attachmentUrl ? " and your payslip is attached" : ""}. You can view it any time in the Payslip section of the dashboard.</p>`
+  );
 
   return NextResponse.json({ ok: true });
 }
