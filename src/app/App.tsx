@@ -11,7 +11,7 @@ import {
   CheckCircle2, XCircle, TrendingUp, TrendingDown, Send, Paperclip,
   Smile, Menu, X, Eye, Edit2, Trash2, Download, RefreshCw,
   GripVertical, Play, Phone, Mail, MapPin, Globe, Activity, SlidersHorizontal,
-  Mic, Code, Layers, Sun, Moon, ChevronLeft, Tag, Info, Copy, Lock, Upload, PartyPopper, Wallet, Receipt
+  Mic, Code, Layers, Sun, Moon, ChevronLeft, Tag, Info, Copy, Lock, Upload, PartyPopper, Wallet, Receipt, ArrowUpDown
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
@@ -1675,12 +1675,31 @@ function weekBuckets(entries: any[], n = 8) {
   return order.map(label => ({ label, amount: buckets[label] }));
 }
 
+const EXPENSE_SORT_OPTS: [string, string][] = [
+  ["date-desc", "Newest First"],
+  ["date-asc", "Oldest First"],
+  ["amount-desc", "Highest Amount"],
+  ["amount-asc", "Lowest Amount"],
+];
+
+function sortExpenseEntries(entries: any[], sortBy: string) {
+  const sorted = [...entries];
+  sorted.sort((a, b) => {
+    if (sortBy === "amount-desc") return b.amount - a.amount;
+    if (sortBy === "amount-asc") return a.amount - b.amount;
+    const diff = new Date(a.rawDate).getTime() - new Date(b.rawDate).getTime();
+    return sortBy === "date-asc" ? diff : -diff;
+  });
+  return sorted;
+}
+
 function ExpenseLogPage() {
   const { c, light } = useTheme();
   const col = light ? LIGHT : DARK;
   const { authUser } = useAuth();
   const { openModal, activeModal } = useModal();
   const [entries, setEntries] = useState<any[]>([]);
+  const [sortBy, setSortBy] = useState("date-desc");
   const isSubmitter = authUser?.email === VIGNESH_EMAIL;
   const isSuperAdmin = authUser?.role === "super-admin";
 
@@ -1693,6 +1712,11 @@ function ExpenseLogPage() {
 
   const monthData = monthBuckets(entries);
   const weekData = weekBuckets(entries);
+  const now = new Date();
+  const thisWeekStart = startOfWeek(now);
+  const monthTotal = entries.filter(e => { const d = new Date(e.rawDate); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); }).reduce((sum, e) => sum + e.amount, 0);
+  const weekTotal = entries.filter(e => startOfWeek(new Date(e.rawDate)).getTime() === thisWeekStart.getTime()).reduce((sum, e) => sum + e.amount, 0);
+  const sortedEntries = sortExpenseEntries(entries, sortBy);
 
   const deleteEntry = async (id: number) => {
     if (!window.confirm("Delete this expense entry? This cannot be undone.")) return;
@@ -1705,6 +1729,10 @@ function ExpenseLogPage() {
       <PageHeader title="Expense Log" subtitle={isSuperAdmin ? "All operations payments logged" : "Log a payment you made on the company's behalf"}
         actions={
           <>
+            <div className="flex items-center gap-2">
+              <div className={`px-3 py-1.5 rounded-lg text-xs ${c("bg-slate-800/60 border border-white/[0.06]","bg-white border border-slate-200")}`}><span className={c("text-slate-500","text-slate-400")}>This Month </span><span className={`font-semibold ${c("text-white","text-slate-900")}`}>₹{monthTotal.toLocaleString("en-IN")}</span></div>
+              <div className={`px-3 py-1.5 rounded-lg text-xs ${c("bg-slate-800/60 border border-white/[0.06]","bg-white border border-slate-200")}`}><span className={c("text-slate-500","text-slate-400")}>This Week </span><span className={`font-semibold ${c("text-white","text-slate-900")}`}>₹{weekTotal.toLocaleString("en-IN")}</span></div>
+            </div>
             {isSubmitter && <Btn size="sm" icon={Plus} onClick={()=>openModal("add-ops-expense")}>Log Expense</Btn>}
             {isSuperAdmin && <Btn variant="secondary" size="sm" icon={Download} onClick={()=>window.location.href="/api/reports/export?type=ops-expenses"}>Export CSV</Btn>}
           </>
@@ -1741,8 +1769,16 @@ function ExpenseLogPage() {
       )}
 
       <Card>
-        <div className={`p-4 border-b ${c("border-white/[0.06]","border-slate-200")}`}>
+        <div className={`p-4 border-b flex items-center justify-between gap-3 flex-wrap ${c("border-white/[0.06]","border-slate-200")}`}>
           <h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>{isSuperAdmin ? "All Entries" : "My Submissions"}</h3>
+          {entries.length > 0 && (
+            <div className="flex items-center gap-2">
+              <ArrowUpDown size={13} className={c("text-slate-500","text-slate-400")}/>
+              <FSelect value={sortBy} onChange={setSortBy} className="!py-1.5 !text-xs !w-auto">
+                {EXPENSE_SORT_OPTS.map(([id,label]) => <option key={id} value={id}>{label}</option>)}
+              </FSelect>
+            </div>
+          )}
         </div>
         {entries.length===0 && <p className={`p-4 text-sm ${c("text-slate-500","text-slate-400")}`}>No expenses logged yet.</p>}
         {entries.length>0 && (
@@ -1751,7 +1787,7 @@ function ExpenseLogPage() {
               <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>
                 {[...(isSuperAdmin?["Submitted By"]:[]),"Date","Payee","Reason","Description","Mode","Amount","Screenshot",...(isSuperAdmin?["Actions"]:[])].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}
               </tr></thead>
-              <tbody>{entries.map((e:any)=>(
+              <tbody>{sortedEntries.map((e:any)=>(
                 <tr key={e.id} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")}`}>
                   {isSuperAdmin && <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{e.submittedBy}</td>}
                   <td className={`px-4 py-3 text-sm ${c("text-slate-300","text-slate-700")}`}>{e.date}</td>
