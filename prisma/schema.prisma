@@ -66,7 +66,6 @@ model Employee {
 
   managedProjects   Project[]        @relation("ProjectManager")
   projectMemberships ProjectMember[]
-  assignedTasks     Task[]           @relation("TaskAssignee")
   tasksAssignedByMe Task[]           @relation("TaskAssignedBy")
   taskComments      TaskComment[]
   taskActivity      TaskActivity[]
@@ -226,8 +225,7 @@ model Task {
   title       String
   projectId   Int?
   project     Project?  @relation(fields: [projectId], references: [id])
-  assigneeId  Int?
-  assignee    Employee? @relation("TaskAssignee", fields: [assigneeId], references: [id])
+  assigneeIds String    @default("[]") // JSON-encoded number[] — group task, multiple assignees
   assignedById Int?
   assignedBy  Employee? @relation("TaskAssignedBy", fields: [assignedById], references: [id])
   priority    String    // critical | high | medium | low
@@ -545,6 +543,7 @@ model EODReport {
   tomorrowPlan String?
   taskIds      String   @default("[]") // JSON-encoded number[]
   attachments  String   @default("[]") // JSON-encoded [{name,url,size,type}] — files live in Blob storage, only refs here
+  important    Boolean  @default(false)
   createdAt    DateTime @default(now())
 
   @@unique([employeeId, date])

@@ -135,6 +135,19 @@ function Avatar({ initials, color = "bg-indigo-500", size = "md" }: { initials: 
   return <div className={`${sizes[size]} ${color} rounded-full flex items-center justify-center font-bold text-white flex-shrink-0`}>{initials}</div>;
 }
 
+function AssigneeStack({ assignees, max = 3, size = "sm" }: { assignees: { id: number; name: string; avatar: string; color: string }[]; max?: number; size?: "sm"|"md" }) {
+  if (!assignees || assignees.length === 0) return <span className="text-[10px] opacity-60">Unassigned</span>;
+  const shown = assignees.slice(0, max);
+  const overflow = assignees.length - shown.length;
+  const dims = size === "sm" ? "w-5 h-5 text-[8px]" : "w-6 h-6 text-[9px]";
+  return (
+    <div className="flex items-center -space-x-1.5">
+      {shown.map(a => <div key={a.id} title={a.name} className={`${dims} ${a.color} rounded-full flex items-center justify-center font-bold text-white ring-2 ring-[var(--card-bg,transparent)]`}>{a.avatar}</div>)}
+      {overflow > 0 && <div className={`${dims} bg-slate-500 rounded-full flex items-center justify-center font-bold text-white ring-2 ring-[var(--card-bg,transparent)]`}>+{overflow}</div>}
+    </div>
+  );
+}
+
 function Card({ children, className = "", onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) {
   const { c } = useTheme();
   return <div onClick={onClick} className={`${c("bg-slate-800/60 border-white/[0.06]","bg-white border-slate-200")} border rounded-xl ${className}`}>{children}</div>;
@@ -479,7 +492,7 @@ function DashboardPage() {
   const [presenceList, setPresenceList] = useState<any[] | null>(null);
   useEffect(() => { fetch("/api/dashboard/stats").then(r => r.json()).then(setStats); }, []);
   useEffect(() => {
-    fetch("/api/tasks").then(r => r.json()).then(d => setMyTasks((d.tasks ?? []).filter((t: any) => t.assignee === authUser?.name)));
+    fetch("/api/tasks").then(r => r.json()).then(d => setMyTasks((d.tasks ?? []).filter((t: any) => t.assignees?.some((a: any) => a.id === authUser?.id))));
   }, [authUser]);
   useEffect(() => { const id = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(id); }, []);
 
@@ -952,7 +965,7 @@ function ProjectsPage() {
 
 const TASK_ADMIN_UI_ROLES = ["super-admin", "manager", "1st-level-manager", "2nd-level-manager", "team-lead"];
 function canDragTask(task: any, authUser: AuthUser | null) {
-  return authUser?.id === task.assigneeId || authUser?.id === task.assignedById || TASK_ADMIN_UI_ROLES.includes(authUser?.role ?? "");
+  return (authUser && task.assigneeIds?.includes(authUser.id)) || authUser?.id === task.assignedById || TASK_ADMIN_UI_ROLES.includes(authUser?.role ?? "");
 }
 
 function DraggableTaskCard({ task, canDrag, onClick, children }: { task: any; canDrag: boolean; onClick: () => void; children: React.ReactNode }) {
@@ -993,6 +1006,16 @@ function TasksPage() {
 
   const openTask = (id: number) => openModal("task-detail", { taskId: id });
 
+  const canDeleteTask = (task: any) => authUser?.id === task.assignedById || TASK_ADMIN_UI_ROLES.includes(authUser?.role ?? "");
+
+  const deleteTaskQuick = async (e: React.MouseEvent, id: number) => {
+    e.stopPropagation();
+    if (!window.confirm("Delete this task? This cannot be undone.")) return;
+    setTasks(p => p.filter(t => t.id !== id));
+    const res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+    if (!res.ok) load();
+  };
+
   const dropTask = async (taskId: number, status: string) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task || task.status === status) return;
@@ -1022,12 +1045,13 @@ function TasksPage() {
                 <TaskDropColumn status={col.id} onDropTask={dropTask}>
                   {colTasks.map(task=>(
                     <DraggableTaskCard key={task.id} task={task} canDrag={canDragTask(task, authUser)} onClick={()=>openTask(task.id)}>
-                      <Card className="p-3.5 transition-all hover:-translate-y-0.5">
-                        <div className="flex items-start justify-between gap-2 mb-2"><p className={`text-xs font-medium leading-relaxed ${c("text-slate-200","text-slate-800")}`}>{task.title}</p><PriorityBadge priority={task.priority}/></div>
+                      <Card className="p-3.5 transition-all hover:-translate-y-0.5 group relative">
+                        {canDeleteTask(task) && <button onClick={e=>deleteTaskQuick(e, task.id)} title="Delete task" className={`absolute top-2 right-2 w-5 h-5 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity ${c("hover:bg-red-500/20 text-slate-500 hover:text-red-400","hover:bg-red-50 text-slate-400 hover:text-red-500")}`}><Trash2 size={12}/></button>}
+                        <div className="flex items-start justify-between gap-2 mb-2 pr-5"><p className={`text-xs font-medium leading-relaxed ${c("text-slate-200","text-slate-800")}`}>{task.title}</p><PriorityBadge priority={task.priority}/></div>
                         <p className={`text-[10px] mb-3 ${c("text-slate-500","text-slate-400")}`}>{task.project}</p>
                         <div className="flex items-center gap-1 mb-3 flex-wrap">{task.tags.map((tag:string)=><span key={tag} className={`text-[9px] px-1.5 py-0.5 rounded ${c("bg-slate-700 text-slate-400","bg-slate-100 text-slate-500")}`}>{tag}</span>)}</div>
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5"><div className={`w-5 h-5 rounded-full ${task.assigneeColor} flex items-center justify-center text-[8px] font-bold text-white`}>{task.assigneeAvatar}</div><span className={`text-[10px] ${c("text-slate-500","text-slate-400")}`}>{task.assignee.split(" ")[0]}</span></div>
+                          <AssigneeStack assignees={task.assignees}/>
                           <span className={`text-[10px] ${c("text-slate-600","text-slate-400")}`}>{task.due}</span>
                         </div>
                         {task.assignedBy && <p className={`text-[9px] mt-2 pt-2 border-t ${c("border-white/[0.06] text-slate-600","border-slate-100 text-slate-400")}`}>Assigned by {task.assignedBy}</p>}
@@ -1043,17 +1067,18 @@ function TasksPage() {
         <Card>
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Task","Project","Assignee","Assigned By","Priority","Status","Due Date"].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
+              <thead><tr className={`border-b ${c("border-white/[0.06]","border-slate-200")}`}>{["Task","Project","Assignee","Assigned By","Priority","Status","Due Date",""].map(h=><th key={h} className={`text-left text-xs font-semibold px-4 py-3 ${c("text-slate-500","text-slate-400")}`}>{h}</th>)}</tr></thead>
               <tbody>
                 {tasks.map(t=>(
                   <tr key={t.id} onClick={()=>openTask(t.id)} className={`border-b ${c("border-white/[0.04]","border-slate-100")} ${c("hover:bg-slate-700/20","hover:bg-slate-50")} cursor-pointer`}>
                     <td className="px-4 py-3"><p className={`text-sm font-medium ${c("text-slate-200","text-slate-800")}`}>{t.title}</p><div className="flex gap-1 mt-1">{t.tags.map((tag:string)=><span key={tag} className={`text-[10px] px-1.5 py-0.5 rounded ${c("bg-slate-700 text-slate-400","bg-slate-100 text-slate-500")}`}>{tag}</span>)}</div></td>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{t.project}</td>
-                    <td className="px-4 py-3"><div className="flex items-center gap-2"><div className={`w-6 h-6 rounded-full ${t.assigneeColor} flex items-center justify-center text-[9px] font-bold text-white`}>{t.assigneeAvatar}</div><span className={`text-xs ${c("text-slate-400","text-slate-500")}`}>{t.assignee}</span></div></td>
+                    <td className="px-4 py-3"><AssigneeStack assignees={t.assignees}/></td>
                     <td className={`px-4 py-3 text-xs ${c("text-slate-400","text-slate-500")}`}>{t.assignedBy || "—"}</td>
                     <td className="px-4 py-3"><PriorityBadge priority={t.priority}/></td>
                     <td className="px-4 py-3"><StatusBadge status={t.status}/></td>
                     <td className={`px-4 py-3 text-sm ${c("text-slate-400","text-slate-500")}`}>{t.due}</td>
+                    <td className="px-4 py-3">{canDeleteTask(t) && <button onClick={e=>deleteTaskQuick(e, t.id)} title="Delete task" className={c("text-slate-500 hover:text-red-400","text-slate-400 hover:text-red-500")}><Trash2 size={14}/></button>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -4027,10 +4052,14 @@ function CreateTaskModal({ onClose }: { onClose: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   const employees = useEmployeeDirectory();
   const [submitError, setSubmitError] = useState("");
-  const [f, setF] = useState({ title: "", project: "", assignee: "", priority: "high", status: "todo", dueDate: "", estimate: "", desc: "", tagInput: "" });
+  const [f, setF] = useState({ title: "", project: "", priority: "high", status: "todo", dueDate: "", estimate: "", desc: "", tagInput: "" });
+  const [assignees, setAssignees] = useState<string[]>([]);
+  const [sendAlert, setSendAlert] = useState(false);
+  const [emailSent, setEmailSent] = useState<boolean | null>(null);
   const [tags, setTags] = useState<string[]>([]);
   const [projectList, setProjectList] = useState<string[]>([]);
   const set = (k: string, v: string) => setF(p => ({ ...p, [k]: v }));
+  const toggleAssignee = (name: string) => setAssignees(p => p.includes(name) ? p.filter(x => x !== name) : [...p, name]);
   const addTag = () => { if (f.tagInput.trim()) { setTags(p => [...p, f.tagInput.trim()]); set("tagInput", ""); }};
   useEffect(() => {
     fetch("/api/projects").then(r => r.json()).then(d => {
@@ -4043,16 +4072,18 @@ function CreateTaskModal({ onClose }: { onClose: () => void }) {
 
   const handleCreate = async () => {
     if (!f.title.trim()) { setSubmitError("Task title is required."); return; }
+    if (assignees.length === 0) { setSubmitError("Assign at least one person before creating the task."); return; }
     setSubmitting(true);
     setSubmitError("");
     try {
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...f, tags }),
+        body: JSON.stringify({ ...f, tags, assigneeNames: assignees, sendAlert }),
       });
       const data = await res.json();
       if (!res.ok) { setSubmitError(data.error || "Could not create task."); return; }
+      setEmailSent(data.emailSent ?? null);
       setDone(true);
     } catch {
       setSubmitError("Could not reach the server. Please try again.");
@@ -4063,7 +4094,12 @@ function CreateTaskModal({ onClose }: { onClose: () => void }) {
 
   if (done) return (
     <ModalOverlay title="Create Task" onClose={onClose}>
-      <SuccessBanner message={`Task "${f.title}" created and assigned to ${f.assignee || "Unassigned"}.`}/>
+      <SuccessBanner message={`Task "${f.title}" created and assigned to ${assignees.join(", ")}.`}/>
+      {sendAlert && (
+        <p className={`text-xs mb-3 ${emailSent ? c("text-slate-400","text-slate-500") : "text-amber-500"}`}>
+          {emailSent ? "Email alert sent." : "Email alert could not be delivered — check the RESEND_API_KEY / sender domain configuration."}
+        </p>
+      )}
       <Btn variant="primary" onClick={onClose}>Done</Btn>
     </ModalOverlay>
   );
@@ -4072,9 +4108,19 @@ function CreateTaskModal({ onClose }: { onClose: () => void }) {
     <ModalOverlay title="Create New Task" subtitle="Define work item with assignee and deadline" onClose={onClose} size="lg">
       <div className="space-y-4">
         <div><FieldLabel label="Task Title" required/><FInput value={f.title} onChange={v => set("title",v)} placeholder="e.g. Implement dark mode for dashboard"/></div>
-        <div className="grid grid-cols-2 gap-4">
-          <div><FieldLabel label="Project"/><FSelect value={f.project} onChange={v => set("project",v)}><option value="">No Project</option>{projectList.map(p => <option key={p}>{p}</option>)}</FSelect></div>
-          <div><FieldLabel label="Assignee"/><FSelect value={f.assignee} onChange={v => set("assignee",v)}><option value="">Unassigned</option>{employees.map(e => <option key={e.id}>{e.name}</option>)}</FSelect></div>
+        <div><FieldLabel label="Project"/><FSelect value={f.project} onChange={v => set("project",v)}><option value="">No Project</option>{projectList.map(p => <option key={p}>{p}</option>)}</FSelect></div>
+        <div>
+          <FieldLabel label={`Assignees (${assignees.length}) — group task`} required/>
+          <div className={`max-h-36 overflow-y-auto rounded-xl border ${c("border-white/[0.08]","border-slate-200")}`}>
+            {employees.map(e => <label key={e.id} className={`flex items-center gap-3 px-4 py-2 cursor-pointer ${assignees.includes(e.name) ? c("bg-indigo-600/10","bg-indigo-50") : c("hover:bg-slate-700/20","hover:bg-slate-50")}`}><input type="checkbox" checked={assignees.includes(e.name)} onChange={() => toggleAssignee(e.name)} className="rounded accent-indigo-500"/><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-700")}`}>{e.name}</span></label>)}
+          </div>
+          {assignees.length > 0 && (
+            <label className="flex items-center gap-2 cursor-pointer mt-2">
+              <input type="checkbox" checked={sendAlert} onChange={e => setSendAlert(e.target.checked)} className="rounded accent-indigo-500"/>
+              <Bell size={13} className={sendAlert ? "text-indigo-400" : c("text-slate-500","text-slate-400")}/>
+              <span className={`text-xs ${c("text-slate-400","text-slate-600")}`}>Email assignees now — "You've been assigned this task"</span>
+            </label>
+          )}
         </div>
         <div>
           <FieldLabel label="Priority" required/>
@@ -4111,7 +4157,10 @@ function TaskDetailModal({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [comment, setComment] = useState("");
   const [editing, setEditing] = useState(false);
-  const [edit, setEdit] = useState({ title: "", desc: "", priority: "", dueDate: "", estimate: "", assignee: "" });
+  const [edit, setEdit] = useState({ title: "", desc: "", priority: "", dueDate: "", estimate: "" });
+  const [editAssignees, setEditAssignees] = useState<string[]>([]);
+  const [alerting, setAlerting] = useState(false);
+  const [alertMsg, setAlertMsg] = useState("");
 
   const load = () => fetch(`/api/tasks/${modalData.taskId}`).then(r => r.json()).then(d => {
     if (d.task) setTask(d.task);
@@ -4120,11 +4169,12 @@ function TaskDetailModal({ onClose }: { onClose: () => void }) {
 
   if (!task) return <ModalOverlay title="Loading..." onClose={onClose}><div className="h-20"/></ModalOverlay>;
 
-  const isAssignee = authUser?.id === task.assignee?.id;
+  const isAssignee = task.assignees?.some((a: any) => a.id === authUser?.id);
   const isAssigner = authUser?.id === task.assignedBy?.id;
   const isAdmin = authUser?.role === "super-admin";
   const canEditFull = isAssigner || isAdmin;
   const canChangeStatus = isAssignee || canEditFull;
+  const canAlert = isAssignee || isAssigner || isAdmin;
 
   const statusOpts = [["todo","To Do"],["in-progress","In Progress"],["review","In Review"],["done","Done"]];
 
@@ -4142,18 +4192,22 @@ function TaskDetailModal({ onClose }: { onClose: () => void }) {
   };
 
   const startEdit = () => {
-    setEdit({ title: task.title, desc: task.description || "", priority: task.priority, dueDate: "", estimate: task.estimateHours != null ? String(task.estimateHours) : "", assignee: task.assignee?.name || "" });
+    setEdit({ title: task.title, desc: task.description || "", priority: task.priority, dueDate: "", estimate: task.estimateHours != null ? String(task.estimateHours) : "" });
+    setEditAssignees((task.assignees ?? []).map((a: any) => a.name));
     setEditing(true);
   };
 
+  const toggleEditAssignee = (name: string) => setEditAssignees(p => p.includes(name) ? p.filter(x => x !== name) : [...p, name]);
+
   const saveEdit = async () => {
+    if (editAssignees.length === 0) { setError("A task must have at least one assignee."); return; }
     setBusy(true);
     setError("");
     try {
       const res = await fetch(`/api/tasks/${task.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: edit.title, desc: edit.desc, priority: edit.priority, estimate: edit.estimate, assignee: edit.assignee, ...(edit.dueDate ? { dueDate: edit.dueDate } : {}) }),
+        body: JSON.stringify({ title: edit.title, desc: edit.desc, priority: edit.priority, estimate: edit.estimate, assignees: editAssignees, ...(edit.dueDate ? { dueDate: edit.dueDate } : {}) }),
       });
       const d = await res.json();
       if (!res.ok) { setError(d.error || "Could not save changes."); return; }
@@ -4161,6 +4215,21 @@ function TaskDetailModal({ onClose }: { onClose: () => void }) {
       await load();
     } finally {
       setBusy(false);
+    }
+  };
+
+  const sendAlert = async () => {
+    setAlerting(true);
+    setAlertMsg("");
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/alert`, { method: "POST" });
+      const d = await res.json();
+      if (!res.ok) { setAlertMsg(d.error || "Could not send alert."); return; }
+      setAlertMsg(d.emailSent
+        ? `Alert emailed to ${d.sentTo} ${d.sentTo === 1 ? "person" : "people"}.`
+        : `In-app notification sent, but the email could not be delivered — check the RESEND_API_KEY / sender domain configuration.`);
+    } finally {
+      setAlerting(false);
     }
   };
 
@@ -4202,7 +4271,12 @@ function TaskDetailModal({ onClose }: { onClose: () => void }) {
               <div><FieldLabel label="Due Date"/><FInput value={edit.dueDate} onChange={v => setEdit(p => ({ ...p, dueDate: v }))} type="date" placeholder={task.due}/></div>
               <div><FieldLabel label="Estimate (hrs)"/><FInput value={edit.estimate} onChange={v => setEdit(p => ({ ...p, estimate: v }))}/></div>
             </div>
-            <div><FieldLabel label="Assignee"/><FSelect value={edit.assignee} onChange={v => setEdit(p => ({ ...p, assignee: v }))}><option value="">Unassigned</option>{employees.map(e => <option key={e.id}>{e.name}</option>)}</FSelect></div>
+            <div>
+              <FieldLabel label={`Assignees (${editAssignees.length})`} required/>
+              <div className={`max-h-36 overflow-y-auto rounded-xl border ${c("border-white/[0.08]","border-slate-200")}`}>
+                {employees.map((e: any) => <label key={e.id} className={`flex items-center gap-3 px-4 py-2 cursor-pointer ${editAssignees.includes(e.name) ? c("bg-indigo-600/10","bg-indigo-50") : c("hover:bg-slate-700/20","hover:bg-slate-50")}`}><input type="checkbox" checked={editAssignees.includes(e.name)} onChange={() => toggleEditAssignee(e.name)} className="rounded accent-indigo-500"/><Avatar initials={e.avatar} color={e.avatarColor} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-700")}`}>{e.name}</span></label>)}
+              </div>
+            </div>
             {error && <p className="text-xs text-red-400">{error}</p>}
             <div className="flex gap-2"><Btn variant="primary" onClick={saveEdit} disabled={busy}>Save</Btn><Btn variant="secondary" onClick={()=>setEditing(false)}>Cancel</Btn></div>
           </>
@@ -4213,7 +4287,11 @@ function TaskDetailModal({ onClose }: { onClose: () => void }) {
             <div className="grid grid-cols-2 gap-4">
               <div className={`p-3 rounded-lg ${c("bg-slate-800/50","bg-slate-50")}`}>
                 <p className={`text-[10px] uppercase tracking-wide mb-1.5 ${c("text-slate-500","text-slate-400")}`}>Assigned to</p>
-                {task.assignee ? <div className="flex items-center gap-2"><Avatar initials={task.assignee.avatar} color={task.assignee.color} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{task.assignee.name}</span></div> : <span className={`text-sm ${c("text-slate-500","text-slate-400")}`}>Unassigned</span>}
+                {task.assignees?.length ? (
+                  <div className="space-y-1.5">
+                    {task.assignees.map((a: any) => <div key={a.id} className="flex items-center gap-2"><Avatar initials={a.avatar} color={a.color} size="sm"/><span className={`text-sm ${c("text-slate-200","text-slate-800")}`}>{a.name}</span></div>)}
+                  </div>
+                ) : <span className={`text-sm ${c("text-slate-500","text-slate-400")}`}>Unassigned</span>}
               </div>
               <div className={`p-3 rounded-lg ${c("bg-slate-800/50","bg-slate-50")}`}>
                 <p className={`text-[10px] uppercase tracking-wide mb-1.5 ${c("text-slate-500","text-slate-400")}`}>Assigned by</p>
@@ -4236,7 +4314,11 @@ function TaskDetailModal({ onClose }: { onClose: () => void }) {
             </div>
 
             {error && <p className="text-xs text-red-400">{error}</p>}
-            {canEditFull && <div className="flex gap-2"><Btn variant="secondary" size="sm" icon={Edit2} onClick={startEdit}>Edit</Btn><Btn variant="danger" size="sm" icon={Trash2} onClick={deleteTask}>Delete</Btn></div>}
+            {alertMsg && <p className={`text-xs ${c("text-slate-400","text-slate-500")}`}>{alertMsg}</p>}
+            <div className="flex gap-2 flex-wrap">
+              {canAlert && <Btn variant="secondary" size="sm" icon={Bell} onClick={sendAlert} disabled={alerting}>{alerting ? "Sending..." : "Alert"}</Btn>}
+              {canEditFull && <><Btn variant="secondary" size="sm" icon={Edit2} onClick={startEdit}>Edit</Btn><Btn variant="danger" size="sm" icon={Trash2} onClick={deleteTask}>Delete</Btn></>}
+            </div>
 
             <div className={`border-t pt-4 ${c("border-white/[0.06]","border-slate-200")}`}>
               <p className={`text-xs font-semibold mb-2 ${c("text-slate-300","text-slate-700")}`}>Activity</p>
@@ -4743,6 +4825,7 @@ function MyEODView() {
   const [error, setError] = useState("");
   const [attachments, setAttachments] = useState<EodAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [important, setImportant] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -4756,6 +4839,7 @@ function MyEODView() {
         setPriorities((d.today.tomorrowPlan || "").split("\n").filter(Boolean).concat(["", "", ""]).slice(0, 3));
         setSelectedTaskIds(d.today.taskIds ?? []);
         setAttachments(d.today.attachments ?? []);
+        setImportant(!!d.today.important);
       }
     });
   }, []);
@@ -4798,7 +4882,7 @@ function MyEODView() {
       const res = await fetch("/api/eod", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ summary: accomplish, blockers, tomorrowPlan: priorities.filter(Boolean).join("\n"), taskIds: selectedTaskIds, attachments }),
+        body: JSON.stringify({ summary: accomplish, blockers, tomorrowPlan: priorities.filter(Boolean).join("\n"), taskIds: selectedTaskIds, attachments, important }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error || "Could not submit report."); return; }
@@ -4856,7 +4940,7 @@ function MyEODView() {
             <div className="space-y-2">
               {history.slice(0, 5).map((h: any) => (
                 <div key={h.id} className={`text-xs p-2 rounded-lg ${c("bg-slate-800/50","bg-slate-50")}`}>
-                  <p className={`font-medium flex items-center gap-1.5 ${c("text-slate-300","text-slate-700")}`}>{h.date}{h.attachments?.length > 0 && <Paperclip size={10}/>}</p>
+                  <p className={`font-medium flex items-center gap-1.5 ${c("text-slate-300","text-slate-700")}`}>{h.date}{h.attachments?.length > 0 && <Paperclip size={10}/>}{h.important && <Bell size={10} className="text-indigo-400"/>}</p>
                   <p className={`mt-0.5 truncate ${c("text-slate-500","text-slate-400")}`}>{h.summary}</p>
                   {h.tasks?.length > 0 && <p className={`mt-1 truncate ${c("text-indigo-400","text-indigo-500")}`}>{h.tasks.join(", ")}</p>}
                 </div>
@@ -4903,7 +4987,12 @@ function MyEODView() {
             </div>
           </Card>
           {error && <p className="text-xs text-red-400">{error}</p>}
-          <div className={`flex items-center justify-end p-4 rounded-xl border ${c("bg-slate-800/60 border-white/[0.06]","bg-white border-slate-200")}`}>
+          <div className={`flex items-center justify-between gap-3 p-4 rounded-xl border flex-wrap ${c("bg-slate-800/60 border-white/[0.06]","bg-white border-slate-200")}`}>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={important} onChange={e => setImportant(e.target.checked)} className="rounded accent-indigo-500"/>
+              <Bell size={13} className={important ? "text-indigo-400" : c("text-slate-500","text-slate-400")}/>
+              <span className={`text-xs ${c("text-slate-400","text-slate-600")}`}>Mark as important — email admins</span>
+            </label>
             <Btn variant="primary" onClick={submit} icon={Send} disabled={uploading}>{submitting ? "Submitting..." : "Submit EOD Report"}</Btn>
           </div>
         </div>

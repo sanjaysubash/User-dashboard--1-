@@ -24,8 +24,16 @@ export async function checkTaskDueReminders(employeeId: number) {
   const today = startOfDay(new Date());
   const tomorrow = new Date(today.getTime() + 86400000);
 
-  const tasks = await prisma.task.findMany({
-    where: { assigneeId: employeeId, status: { not: "done" }, dueDate: { not: null } },
+  const candidates = await prisma.task.findMany({
+    where: { status: { not: "done" }, dueDate: { not: null } },
+  });
+  const tasks = candidates.filter((t) => {
+    try {
+      const ids = JSON.parse(t.assigneeIds || "[]");
+      return Array.isArray(ids) && ids.includes(employeeId);
+    } catch {
+      return false;
+    }
   });
 
   for (const task of tasks) {

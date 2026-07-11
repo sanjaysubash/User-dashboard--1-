@@ -19,13 +19,33 @@ export async function GET() {
     prisma.task.count({ where: { status: { not: "done" }, dueDate: { lt: today } } }),
     prisma.task.count(),
     prisma.task.count({ where: { status: "done" } }),
-    prisma.task.findMany({ select: { status: true, assignee: { select: { department: { select: { name: true } } } } } }),
+    prisma.task.findMany({ select: { status: true, assigneeIds: true } }),
   ]);
+
+  const employeeIds = Array.from(new Set(tasksWithDept.flatMap((t) => {
+    try {
+      const ids = JSON.parse(t.assigneeIds || "[]");
+      return Array.isArray(ids) ? ids : [];
+    } catch {
+      return [];
+    }
+  })));
+  const employees = employeeIds.length
+    ? await prisma.employee.findMany({ where: { id: { in: employeeIds } }, select: { id: true, department: { select: { name: true } } } })
+    : [];
+  const deptById = new Map(employees.map((e) => [e.id, e.department?.name]));
 
   const STATUS_KEYS = ["todo", "in-progress", "review", "done"] as const;
   const byDept: Record<string, Record<string, number>> = {};
   for (const t of tasksWithDept) {
-    const dept = t.assignee?.department?.name ?? "Unassigned";
+    let firstAssigneeId: number | undefined;
+    try {
+      const ids = JSON.parse(t.assigneeIds || "[]");
+      firstAssigneeId = Array.isArray(ids) ? ids[0] : undefined;
+    } catch {
+      firstAssigneeId = undefined;
+    }
+    const dept = (firstAssigneeId != null ? deptById.get(firstAssigneeId) : undefined) ?? "Unassigned";
     byDept[dept] ??= { todo: 0, "in-progress": 0, review: 0, done: 0 };
     byDept[dept][t.status] = (byDept[dept][t.status] ?? 0) + 1;
   }

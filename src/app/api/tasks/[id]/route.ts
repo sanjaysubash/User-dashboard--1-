@@ -19,12 +19,20 @@ function timeAgo(d: Date) {
   return `${days} day${days > 1 ? "s" : ""} ago`;
 }
 
+function parseAssigneeIds(json: string): number[] {
+  try {
+    const arr = JSON.parse(json);
+    return Array.isArray(arr) ? arr.filter((n) => typeof n === "number") : [];
+  } catch {
+    return [];
+  }
+}
+
 async function loadTask(id: number) {
   return prisma.task.findUnique({
     where: { id },
     include: {
       project: true,
-      assignee: true,
       assignedBy: true,
       comments: { include: { author: true }, orderBy: { createdAt: "asc" } },
       activity: { include: { actor: true }, orderBy: { createdAt: "asc" } },
@@ -32,7 +40,15 @@ async function loadTask(id: number) {
   });
 }
 
-function serialize(task: NonNullable<Awaited<ReturnType<typeof loadTask>>>) {
+async function loadAssignees(task: { assigneeIds: string }) {
+  const ids = parseAssigneeIds(task.assigneeIds);
+  if (!ids.length) return [];
+  const employees = await prisma.employee.findMany({ where: { id: { in: ids } } });
+  return employees.map((e) => ({ id: e.id, name: e.name, avatar: e.avatarInitials, color: e.avatarColor }));
+}
+
+async function serialize(task: NonNullable<Awaited<ReturnType<typeof loadTask>>>) {
+  const assignees = await loadAssignees(task);
   return {
     id: task.id,
     title: task.title,
@@ -43,7 +59,8 @@ function serialize(task: NonNullable<Awaited<ReturnType<typeof loadTask>>>) {
     due: task.dueDate ? formatDate(task.dueDate) : "",
     estimateHours: task.estimateHours,
     tags: JSON.parse(task.tags || "[]"),
-    assignee: task.assignee ? { id: task.assignee.id, name: task.assignee.name, avatar: task.assignee.avatarInitials, color: task.assignee.avatarColor } : null,
+    assigneeIds: assignees.map((a) => a.id),
+    assignees,
     assignedBy: task.assignedBy ? { id: task.assignedBy.id, name: task.assignedBy.name, avatar: task.assignedBy.avatarInitials, color: task.assignedBy.avatarColor } : null,
     createdAt: formatDate(task.createdAt),
     comments: task.comments.map((c) => ({
@@ -72,10 +89,11 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const task = await loadTask(id);
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const canView = task.assigneeId === user.id || task.assignedById === user.id || canViewAllTasks(user);
+  const isAssignee = parseAssigneeIds(task.assigneeIds).includes(user.id);
+  const canView = isAssignee || task.assignedById === user.id || canViewAllTasks(user);
   if (!canView) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  return NextResponse.json({ task: serialize(task) });
+  return NextResponse.json({ task: await serialize(task) });
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
@@ -86,7 +104,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const task = await loadTask(id);
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const isAssignee = task.assigneeId === user.id;
+  const currentAssigneeIds = parseAssigneeIds(task.assigneeIds);
+  const isAssignee = currentAssigneeIds.includes(user.id);
   const isAssigner = task.assignedById === user.id;
   const isAdmin = canViewAllTasks(user);
   const canEditFull = isAssigner || isAdmin;
@@ -102,6 +121,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   const updateData: Record<string, unknown> = {};
   const activityEntries: { action: string; detail: string }[] = [];
+  let newlyAddedAssignees: { id: number; name: string }[] = [];
 
   if ("status" in body) {
     const status = body.status;
@@ -131,21 +151,23 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       }
       updateData.dueDate = dueDate;
     }
-    if ("assignee" in body) {
-      const newAssignee = body.assignee ? await prisma.employee.findFirst({ where: { name: body.assignee } }) : null;
-      if (body.assignee && !newAssignee) return NextResponse.json({ error: "Unknown assignee." }, { status: 400 });
-      if ((newAssignee?.id ?? null) !== task.assigneeId) {
-        updateData.assigneeId = newAssignee?.id ?? null;
-        activityEntries.push({ action: "reassigned", detail: newAssignee ? `Reassigned to ${newAssignee.name}` : "Unassigned" });
-        if (newAssignee && newAssignee.id !== user.id) {
-          await notify(newAssignee.id, "task", "Task assigned to you", `${user.name} assigned "${task.title}" to you`, "tasks");
-        }
+    if ("assignees" in body) {
+      const names: string[] = Array.isArray(body.assignees) ? body.assignees : [];
+      if (!names.length) return NextResponse.json({ error: "A task must have at least one assignee." }, { status: 400 });
+      const matches = await prisma.employee.findMany({ where: { name: { in: names } } });
+      if (!matches.length) return NextResponse.json({ error: "Unknown assignee." }, { status: 400 });
+      const newIds = matches.map((m) => m.id);
+      const sameSet = newIds.length === currentAssigneeIds.length && newIds.every((i) => currentAssigneeIds.includes(i));
+      if (!sameSet) {
+        updateData.assigneeIds = JSON.stringify(newIds);
+        activityEntries.push({ action: "reassigned", detail: matches.length ? `Assigned to ${matches.map((m) => m.name).join(", ")}` : "Unassigned" });
+        newlyAddedAssignees = matches.filter((m) => !currentAssigneeIds.includes(m.id) && m.id !== user.id).map((m) => ({ id: m.id, name: m.name }));
       }
     }
   }
 
   if (Object.keys(updateData).length === 0 && activityEntries.length === 0) {
-    return NextResponse.json({ task: serialize(task) });
+    return NextResponse.json({ task: await serialize(task) });
   }
 
   await prisma.task.update({ where: { id }, data: updateData });
@@ -153,16 +175,26 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     await prisma.taskActivity.create({ data: { taskId: id, actorId: user.id, action: entry.action, detail: entry.detail } });
   }
 
+  for (const a of newlyAddedAssignees) {
+    await notify(a.id, "task", "Task assigned to you", `${user.name} assigned "${task.title}" to you`, "tasks");
+  }
+
   if (updateData.status) {
-    const notifyTargetId = isAssignee ? task.assignedById : task.assigneeId;
-    if (notifyTargetId && notifyTargetId !== user.id) {
-      await notify(notifyTargetId, "task", "Task status updated", `${user.name} moved "${task.title}" to ${statusLabel(updateData.status as string)}.`, "tasks");
-    }
+    // Notify everyone else involved in the task: the other assignees, and the
+    // assigner if the actor is one of the assignees (or vice versa).
+    const notifyTargets = new Set<number>(currentAssigneeIds);
+    if (task.assignedById) notifyTargets.add(task.assignedById);
+    notifyTargets.delete(user.id);
+    await Promise.all(
+      Array.from(notifyTargets).map((targetId) =>
+        notify(targetId, "task", "Task status updated", `${user.name} moved "${task.title}" to ${statusLabel(updateData.status as string)}.`, "tasks")
+      )
+    );
   }
   await logAudit(user, `Updated task "${task.title}"`, "Tasks");
 
   const updated = await loadTask(id);
-  return NextResponse.json({ task: serialize(updated!) });
+  return NextResponse.json({ task: await serialize(updated!) });
 }
 
 export async function DELETE(_req: NextRequest, { params }: Params) {
@@ -177,9 +209,9 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  if (task.assigneeId && task.assigneeId !== user.id) {
-    await notify(task.assigneeId, "task", "Task deleted", `"${task.title}" was deleted by ${user.name}.`, "tasks");
-  }
+  const assigneeIds = parseAssigneeIds(task.assigneeIds).filter((aid) => aid !== user.id);
+  await Promise.all(assigneeIds.map((aid) => notify(aid, "task", "Task deleted", `"${task.title}" was deleted by ${user.name}.`, "tasks")));
+
   await prisma.taskComment.deleteMany({ where: { taskId: id } });
   await prisma.taskActivity.deleteMany({ where: { taskId: id } });
   await prisma.task.delete({ where: { id } });

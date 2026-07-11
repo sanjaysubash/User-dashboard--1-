@@ -94,6 +94,7 @@ export async function GET() {
           tomorrowPlan: todayReport.tomorrowPlan,
           taskIds: parseTaskIds(todayReport.taskIds),
           attachments: parseAttachments(todayReport.attachments),
+          important: todayReport.important,
         }
       : null,
     history: history.map((r) => ({
@@ -104,6 +105,7 @@ export async function GET() {
       tomorrowPlan: r.tomorrowPlan,
       tasks: resolve(parseTaskIds(r.taskIds)),
       attachments: parseAttachments(r.attachments),
+      important: r.important,
     })),
     compliance: {
       submitted: monthReports.length,
@@ -121,36 +123,39 @@ export async function POST(req: NextRequest) {
   if (!summary) return NextResponse.json({ error: "A summary of today's work is required." }, { status: 400 });
 
   const requestedTaskIds: number[] = Array.isArray(body?.taskIds) ? body.taskIds.map(Number).filter(Number.isFinite) : [];
-  const ownedTasks = requestedTaskIds.length
-    ? await prisma.task.findMany({ where: { id: { in: requestedTaskIds }, assigneeId: user.id }, select: { id: true } })
+  const candidateTasks = requestedTaskIds.length
+    ? await prisma.task.findMany({ where: { id: { in: requestedTaskIds } }, select: { id: true, assigneeIds: true } })
     : [];
+  const ownedTasks = candidateTasks.filter((t) => parseTaskIds(t.assigneeIds).includes(user.id));
   const taskIds = JSON.stringify(ownedTasks.map((t) => t.id));
 
   const { attachments: safeAttachments, error: attachmentError } = sanitizeAttachments(body?.attachments);
   if (attachmentError) return NextResponse.json({ error: attachmentError }, { status: 400 });
   const attachments = JSON.stringify(safeAttachments);
+  const important = !!body?.important;
 
   const today = startOfDay(new Date());
   const report = await prisma.eODReport.upsert({
     where: { employeeId_date: { employeeId: user.id, date: today } },
-    create: { employeeId: user.id, date: today, summary, blockers: body?.blockers || null, tomorrowPlan: body?.tomorrowPlan || null, taskIds, attachments },
-    update: { summary, blockers: body?.blockers || null, tomorrowPlan: body?.tomorrowPlan || null, taskIds, attachments },
+    create: { employeeId: user.id, date: today, summary, blockers: body?.blockers || null, tomorrowPlan: body?.tomorrowPlan || null, taskIds, attachments, important },
+    update: { summary, blockers: body?.blockers || null, tomorrowPlan: body?.tomorrowPlan || null, taskIds, attachments, important },
   });
 
-  const EOD_ALERT_EXTRA_RECIPIENTS = ["adityayadav6661@gmail.com", "ashika221997@gmail.com"];
   const admins = await prisma.employee.findMany({ where: { role: "super_admin" } });
   const eodEmailSubject = `EOD submitted — ${user.name}`;
-  const eodEmailHtml = `<p><strong>${user.name}</strong> has submitted today's EOD report.</p><p><strong>Summary:</strong> ${summary}</p>`;
-  await sendMail(EOD_ALERT_EXTRA_RECIPIENTS, eodEmailSubject, eodEmailHtml);
+  const eodEmailHtml = `<p><strong>${user.name}</strong> has submitted today's EOD report and marked it important.</p><p><strong>Summary:</strong> ${summary}</p>`;
+
+  // The employee marks a report "important" at submit time; only then do we
+  // send email alerts. In-app notifications still go out for every submission.
+  if (important) {
+    const EOD_ALERT_EXTRA_RECIPIENTS = ["adityayadav6661@gmail.com", "ashika221997@gmail.com"];
+    await sendMail(EOD_ALERT_EXTRA_RECIPIENTS, eodEmailSubject, eodEmailHtml);
+  }
   await Promise.all(
     admins.map((admin) =>
       Promise.all([
         notify(admin.id, "eod", "EOD submitted", `${user.name} has submitted an EOD report.`, "eod"),
-        sendMail(
-          admin.email,
-          eodEmailSubject,
-          eodEmailHtml
-        ),
+        ...(important ? [sendMail(admin.email, eodEmailSubject, eodEmailHtml)] : []),
       ])
     )
   );
