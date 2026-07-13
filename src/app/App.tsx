@@ -120,14 +120,14 @@ type Page =
 
 function Badge({ children, variant = "default", className = "" }: { children: React.ReactNode; variant?: "default"|"success"|"warning"|"danger"|"info"|"purple"; className?: string }) {
   const variants = {
-    default: "bg-slate-500/20 text-slate-400 border border-slate-500/20",
-    success: "bg-emerald-500/15 text-emerald-500 border border-emerald-500/25",
-    warning: "bg-amber-500/15 text-amber-500 border border-amber-500/25",
-    danger: "bg-red-500/15 text-red-500 border border-red-500/25",
-    info: "bg-indigo-500/15 text-indigo-500 border border-indigo-500/25",
-    purple: "bg-violet-500/15 text-violet-500 border border-violet-500/25",
+    default: "bg-slate-500/15 text-slate-400 border border-slate-500/20",
+    success: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
+    warning: "bg-amber-500/10 text-amber-400 border border-amber-500/20",
+    danger: "bg-red-500/10 text-red-400 border border-red-500/20",
+    info: "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20",
+    purple: "bg-violet-500/10 text-violet-400 border border-violet-500/20",
   };
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium ${variants[variant]} ${className}`}>{children}</span>;
+  return <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold leading-none whitespace-nowrap ${variants[variant]} ${className}`}>{children}</span>;
 }
 
 function Avatar({ initials, color = "bg-indigo-500", size = "md" }: { initials: string; color?: string; size?: "sm"|"md"|"lg"|"xl" }) {
@@ -150,23 +150,29 @@ function AssigneeStack({ assignees, max = 3, size = "sm" }: { assignees: { id: n
 
 function Card({ children, className = "", onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) {
   const { c } = useTheme();
-  return <div onClick={onClick} className={`${c("bg-slate-800/60 border-white/[0.06]","bg-white border-slate-200")} border rounded-xl ${className}`}>{children}</div>;
+  return (
+    <div onClick={onClick}
+      className={`${c("bg-slate-800/50 border-white/[0.06]","bg-white border-slate-200/70")} border rounded-xl shadow-sm ${c("shadow-black/20","shadow-slate-200/50")} ${onClick ? `cursor-pointer transition-all duration-200 ${c("hover:border-white/10 hover:bg-slate-800/70","hover:border-slate-300 hover:shadow-md")}` : ""} ${className}`}>
+      {children}
+    </div>
+  );
 }
 
 function StatCard({ label, value, change, changeLabel, icon: Icon, iconColor, trend, onClick }: { label: string; value: string; change?: string; changeLabel?: string; icon: React.ElementType; iconColor: string; trend?: "up"|"down"; onClick?: () => void }) {
   const { c } = useTheme();
   return (
-    <div onClick={onClick} className={`${c("bg-slate-800/60 border-white/[0.06] hover:border-white/10","bg-white border-slate-200 hover:border-slate-300")} border rounded-xl p-5 flex flex-col gap-3 transition-colors ${onClick ? "cursor-pointer" : ""}`}>
+    <div onClick={onClick}
+      className={`${c("bg-slate-800/50 border-white/[0.06]","bg-white border-slate-200/70")} border rounded-xl shadow-sm ${c("shadow-black/20","shadow-slate-200/50")} p-5 flex flex-col gap-4 transition-all duration-200 ${onClick ? `cursor-pointer hover:-translate-y-0.5 ${c("hover:border-white/10 hover:shadow-lg hover:shadow-black/30","hover:border-slate-300 hover:shadow-lg")}` : ""}`}>
       <div className="flex items-center justify-between">
         <span className={`text-[11px] font-semibold tracking-wide uppercase ${c("text-slate-400","text-slate-500")}`}>{label}</span>
-        <div className={`w-8 h-8 rounded-lg ${iconColor} flex items-center justify-center`}><Icon size={15} className="text-white" /></div>
+        <div className={`w-9 h-9 rounded-lg ${iconColor} flex items-center justify-center shadow-sm ring-1 ring-white/10`}><Icon size={16} className="text-white" /></div>
       </div>
       <div>
-        <div className={`text-2xl font-bold ${c("text-white","text-slate-900")}`}>{value}</div>
+        <div className={`text-[26px] leading-none font-bold tracking-tight ${c("text-white","text-slate-900")}`}>{value}</div>
         {change && (
-          <div className={`flex items-center gap-1 mt-1 text-xs ${trend==="up"?"text-emerald-500":"text-red-500"}`}>
-            {trend==="up"?<ArrowUp size={12}/>:<ArrowDown size={12}/>}
-            <span className="font-medium">{change}</span>
+          <div className={`flex items-center gap-1.5 mt-3 text-xs ${trend==="up"?"text-emerald-500":"text-red-500"}`}>
+            <span className={`flex items-center justify-center w-4 h-4 rounded-full ${trend==="up"?"bg-emerald-500/15":"bg-red-500/15"}`}>{trend==="up"?<ArrowUp size={10}/>:<ArrowDown size={10}/>}</span>
+            <span className="font-semibold">{change}</span>
             {changeLabel && <span className={c("text-slate-500","text-slate-400")}>{changeLabel}</span>}
           </div>
         )}
@@ -198,8 +204,18 @@ function StatusBadge({ status }: { status: string }) {
 function ProgressBar({ value, color="bg-indigo-500" }: { value: number; color?: string }) {
   const { c } = useTheme();
   return (
-    <div className={`w-full h-1.5 ${c("bg-slate-700","bg-slate-200")} rounded-full overflow-hidden`}>
-      <div className={`h-full ${color} rounded-full`} style={{ width:`${Math.min(value,100)}%` }}/>
+    <div className={`w-full h-1.5 ${c("bg-slate-700/70","bg-slate-200")} rounded-full overflow-hidden`}>
+      <div className={`h-full ${color} rounded-full transition-all duration-500`} style={{ width:`${Math.min(value,100)}%` }}/>
+    </div>
+  );
+}
+
+function EmptyState({ icon: Icon, title, className = "" }: { icon?: React.ElementType; title: string; className?: string }) {
+  const { c } = useTheme();
+  return (
+    <div className={`flex flex-col items-center justify-center text-center py-14 px-6 rounded-xl border border-dashed ${c("border-white/10","border-slate-200")} ${className}`}>
+      {Icon && <div className={`w-11 h-11 rounded-full flex items-center justify-center mb-3 ${c("bg-white/[0.04]","bg-slate-100")}`}><Icon size={18} className={c("text-slate-500","text-slate-400")}/></div>}
+      <p className={`text-sm font-medium ${c("text-slate-400","text-slate-500")}`}>{title}</p>
     </div>
   );
 }
@@ -207,10 +223,10 @@ function ProgressBar({ value, color="bg-indigo-500" }: { value: number; color?: 
 function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: React.ReactNode }) {
   const { c } = useTheme();
   return (
-    <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+    <div className="flex items-center justify-between mb-7 flex-wrap gap-3">
       <div>
-        <h1 className={`text-xl font-semibold ${c("text-white","text-slate-900")}`}>{title}</h1>
-        {subtitle && <p className={`text-sm mt-0.5 ${c("text-slate-400","text-slate-500")}`}>{subtitle}</p>}
+        <h1 className={`text-[22px] font-bold tracking-tight ${c("text-white","text-slate-900")}`}>{title}</h1>
+        {subtitle && <p className={`text-sm mt-1 ${c("text-slate-400","text-slate-500")}`}>{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2 flex-wrap">{actions}</div>}
     </div>
@@ -220,14 +236,14 @@ function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: st
 function Btn({ children, variant="primary", size="md", onClick, icon: Icon, className="", disabled=false }: { children?: React.ReactNode; variant?: "primary"|"secondary"|"ghost"|"danger"; size?: "sm"|"md"; onClick?: ()=>void; icon?: React.ElementType; className?: string; disabled?: boolean }) {
   const { c } = useTheme();
   const variants = {
-    primary: "bg-indigo-600 hover:bg-indigo-500 text-white",
-    secondary: c("bg-slate-700 hover:bg-slate-600 text-slate-200 border border-white/[0.08]","bg-white hover:bg-slate-50 text-slate-700 border border-slate-200"),
-    ghost: c("hover:bg-slate-700/60 text-slate-300","hover:bg-slate-100 text-slate-600"),
-    danger: "bg-red-600 hover:bg-red-500 text-white",
+    primary: "bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white shadow-sm shadow-indigo-950/30",
+    secondary: c("bg-slate-800 hover:bg-slate-700 text-slate-200 border border-white/[0.08]","bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-sm"),
+    ghost: c("hover:bg-white/[0.06] text-slate-300","hover:bg-slate-100 text-slate-600"),
+    danger: "bg-red-600 hover:bg-red-500 text-white shadow-sm shadow-red-950/30",
   };
   const sizes = { sm:"px-3 py-1.5 text-xs gap-1.5", md:"px-4 py-2 text-sm gap-2" };
   return (
-    <button onClick={onClick} disabled={disabled} className={`inline-flex items-center font-medium rounded-lg transition-colors disabled:opacity-50 disabled:pointer-events-none ${variants[variant]} ${sizes[size]} ${className}`}>
+    <button onClick={onClick} disabled={disabled} className={`inline-flex items-center justify-center font-medium rounded-lg transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 disabled:opacity-50 disabled:pointer-events-none disabled:active:scale-100 ${variants[variant]} ${sizes[size]} ${className}`}>
       {Icon && <Icon size={size==="sm"?13:15}/>}
       {children}
     </button>
@@ -283,28 +299,28 @@ function Sidebar({ activePage, onNavigate, collapsed, onToggle }: { activePage: 
   return (
     <aside className={`flex flex-col h-full flex-shrink-0 transition-all duration-300 ${collapsed?"w-16":"w-60"}`}
       style={{ background:DARK.sidebar, borderRight:"1px solid rgba(255,255,255,0.06)" }}>
-      <div className="flex items-center gap-3 px-4 py-4 border-b border-white/[0.06]">
-        <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center flex-shrink-0"><Layers size={16} className="text-white"/></div>
+      <div className="flex items-center gap-3 px-4 h-14 border-b border-white/[0.06]">
+        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center flex-shrink-0 shadow-sm shadow-indigo-950/50 ring-1 ring-white/10"><Layers size={16} className="text-white"/></div>
         {!collapsed && <span className="text-base font-bold text-white tracking-tight">RIAURA</span>}
         <button onClick={onToggle} className={`text-slate-500 hover:text-slate-300 transition-colors ${collapsed?"mx-auto":"ml-auto"}`}><Menu size={16}/></button>
       </div>
-      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
+      <nav className="flex-1 overflow-y-auto py-4 px-2.5 space-y-5">
         {navGroups.map(group => {
           const visibleItems = group.items.filter(item => hasAccess(item.id));
           if (!visibleItems.length) return null;
           return (
             <div key={group.label}>
-              {!collapsed && <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-widest px-2 mb-1">{group.label}</p>}
+              {!collapsed && <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-widest px-2.5 mb-1.5">{group.label}</p>}
               <div className="space-y-0.5">
                 {visibleItems.map(item => {
                   const Icon = item.icon; const isActive = activePage===item.id;
                   return (
                     <button key={item.id} onClick={()=>onNavigate(item.id as Page)}
-                      className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors group relative ${isActive?"bg-indigo-600/20 text-indigo-400":"text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"} ${collapsed?"justify-center":""}`}>
+                      className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors duration-150 group relative ${isActive?"bg-indigo-500/10 text-indigo-300":"text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]"} ${collapsed?"justify-center":""}`}>
+                      {isActive && <span className={`absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-indigo-400 ${collapsed?"hidden":""}`}/>}
                       <Icon size={16} className={`flex-shrink-0 ${isActive?"text-indigo-400":"text-slate-500 group-hover:text-slate-300"}`}/>
-                      {!collapsed && <span className="flex-1 text-left font-medium">{item.label}</span>}
-                      {!collapsed && item.id==="notifications" && unreadCount>0 && <span className="text-[10px] bg-indigo-600 text-white rounded-full px-1.5 py-0.5 font-semibold">{unreadCount}</span>}
-                      {isActive && !collapsed && <div className="w-1 h-1 rounded-full bg-indigo-400 absolute right-2.5"/>}
+                      {!collapsed && <span className={`flex-1 text-left ${isActive?"font-semibold":"font-medium"}`}>{item.label}</span>}
+                      {!collapsed && item.id==="notifications" && unreadCount>0 && <span className="text-[10px] bg-indigo-600 text-white rounded-full px-1.5 py-0.5 font-semibold leading-none">{unreadCount}</span>}
                     </button>
                   );
                 })}
@@ -315,15 +331,15 @@ function Sidebar({ activePage, onNavigate, collapsed, onToggle }: { activePage: 
       </nav>
       <div className="px-3 py-3 border-t border-white/[0.06]">
         {!collapsed && authUser && (
-          <div className="px-2 pb-2">
+          <div className="px-2 pb-2.5">
             <div className="flex items-center gap-1.5">
-              <div className={`w-1.5 h-1.5 rounded-full bg-emerald-500`} />
+              <div className={`w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.6)]`} />
               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${roleConfig[authUser.role].bg} ${roleConfig[authUser.role].color}`}>{authUser.roleLabel}</span>
             </div>
           </div>
         )}
         <button onClick={logout} title="Sign out" className={`w-full flex items-center gap-2.5 p-2 rounded-lg hover:bg-white/[0.04] transition-colors ${collapsed?"justify-center":""}`}>
-          <div className={`w-7 h-7 rounded-full ${authUser?.avatarColor||"bg-indigo-600"} flex items-center justify-center text-xs font-bold text-white flex-shrink-0`}>{authUser?.avatar||"?"}</div>
+          <div className={`w-7 h-7 rounded-full ${authUser?.avatarColor||"bg-indigo-600"} flex items-center justify-center text-xs font-bold text-white flex-shrink-0 ring-1 ring-white/10`}>{authUser?.avatar||"?"}</div>
           {!collapsed && (
             <>
               <div className="flex-1 text-left min-w-0">
@@ -392,7 +408,7 @@ function GlobalSearch({ onNavigate }: { onNavigate:(p:Page)=>void }) {
       <div className="relative">
         <Search size={14} className={`absolute left-3 top-1/2 -translate-y-1/2 ${c("text-slate-500","text-slate-400")}`}/>
         <input ref={inputRef} value={query} onChange={e=>{ setQuery(e.target.value); setOpen(true); }} onFocus={()=>setOpen(true)}
-          className={`w-full border rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none transition-colors ${c("bg-slate-800/60 border-white/[0.08] text-slate-300 placeholder-slate-600 focus:border-indigo-500/50","bg-slate-100 border-slate-200 text-slate-700 placeholder-slate-400 focus:border-indigo-400")}`}
+          className={`w-full border rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none transition-all duration-150 ${c("bg-white/[0.04] border-white/[0.08] text-slate-300 placeholder-slate-600 focus:border-indigo-500/50 focus:bg-slate-800/80 focus:ring-2 focus:ring-indigo-500/15","bg-slate-100 border-slate-200 text-slate-700 placeholder-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/15")}`}
           placeholder="Search people, projects, tasks..."/>
         {!query && <kbd className={`absolute right-3 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded border ${c("text-slate-600 bg-slate-800 border-white/[0.06]","text-slate-400 bg-white border-slate-200")}`}>⌘K</kbd>}
         {open && q.length >= 2 && (
@@ -441,28 +457,29 @@ function GlobalSearch({ onNavigate }: { onNavigate:(p:Page)=>void }) {
 function TopBar({ activePage, onNavigate, onToggleTheme }: { activePage: Page; onNavigate:(p:Page)=>void; onToggleTheme:()=>void }) {
   const { c, light } = useTheme();
   const { authUser, logout } = useAuth();
-  const label = navGroups.flatMap(g=>g.items).find(i=>i.id===activePage)?.label||"Dashboard";
+  const extraLabels: Record<string, string> = { profile: "My Profile", "employee-profile": "Employee Profile" };
+  const label = navGroups.flatMap(g=>g.items).find(i=>i.id===activePage)?.label || extraLabels[activePage] || "Dashboard";
   return (
-    <header className="h-14 flex items-center gap-4 px-6 flex-shrink-0"
-      style={{ background:light?LIGHT.topbar:DARK.topbar, borderBottom:light?"1px solid #E2E8F0":"1px solid rgba(255,255,255,0.06)" }}>
+    <header className="h-14 flex items-center gap-4 px-6 flex-shrink-0 sticky top-0 z-20 backdrop-blur-md"
+      style={{ background:light?`${LIGHT.topbar}E6`:`${DARK.topbar}CC`, borderBottom:light?"1px solid #E2E8F0":"1px solid rgba(255,255,255,0.06)" }}>
       <div className="flex items-center gap-2 text-sm">
         <span className={c("text-slate-500","text-slate-400")}>RIAURA</span>
         <ChevronRight size={14} className={c("text-slate-700","text-slate-300")}/>
-        <span className={`font-medium ${c("text-slate-200","text-slate-800")}`}>{label}</span>
+        <span className={`font-semibold ${c("text-slate-200","text-slate-800")}`}>{label}</span>
       </div>
       <GlobalSearch onNavigate={onNavigate}/>
-      <div className="flex items-center gap-2 ml-auto">
-        <Btn variant="secondary" size="sm" icon={Plus}>New</Btn>
+      <div className="flex items-center gap-1.5 ml-auto">
+        <Btn variant="secondary" size="sm" icon={Plus} className="mr-1">New</Btn>
         {/* Theme Toggle */}
         <button onClick={onToggleTheme}
-          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${c("text-slate-400 hover:text-slate-200 hover:bg-slate-700/60","text-slate-500 hover:text-slate-700 hover:bg-slate-100")}`}
+          className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${c("text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]","text-slate-500 hover:text-slate-700 hover:bg-slate-100")}`}
           title={light?"Switch to Dark":"Switch to Light"}>
           {light?<Moon size={16}/>:<Sun size={16}/>}
         </button>
-        <button onClick={()=>onNavigate("notifications")} className={`relative w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${c("text-slate-400 hover:text-slate-200 hover:bg-slate-700/60","text-slate-500 hover:text-slate-700 hover:bg-slate-100")}`}>
-          <Bell size={16}/><span className="absolute top-1 right-1 w-2 h-2 bg-indigo-500 rounded-full border-2" style={{ borderColor:light?LIGHT.topbar:DARK.topbar }}/>
+        <button onClick={()=>onNavigate("notifications")} className={`relative w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${c("text-slate-400 hover:text-slate-200 hover:bg-white/[0.06]","text-slate-500 hover:text-slate-700 hover:bg-slate-100")}`}>
+          <Bell size={16}/><span className="absolute top-1.5 right-1.5 w-2 h-2 bg-indigo-500 rounded-full border-2" style={{ borderColor:light?LIGHT.topbar:DARK.topbar }}/>
         </button>
-        <button onClick={()=>onNavigate("profile")} className={`w-8 h-8 rounded-full ${authUser?.avatarColor||"bg-indigo-600"} flex items-center justify-center text-xs font-bold text-white`}>{authUser?.avatar||"SJ"}</button>
+        <button onClick={()=>onNavigate("profile")} className={`w-8 h-8 rounded-full ${authUser?.avatarColor||"bg-indigo-600"} flex items-center justify-center text-xs font-bold text-white ring-1 ring-white/10 hover:ring-white/20 transition-all ml-1`}>{authUser?.avatar||"SJ"}</button>
         {authUser && (
           <button onClick={logout} title="Sign out"
             className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${c("text-slate-400 hover:text-red-400 hover:bg-red-500/10","text-slate-500 hover:text-red-500 hover:bg-red-50")}`}>
@@ -1716,6 +1733,7 @@ function ExpenseLogPage() {
   const thisWeekStart = startOfWeek(now);
   const monthTotal = entries.filter(e => { const d = new Date(e.rawDate); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); }).reduce((sum, e) => sum + e.amount, 0);
   const weekTotal = entries.filter(e => startOfWeek(new Date(e.rawDate)).getTime() === thisWeekStart.getTime()).reduce((sum, e) => sum + e.amount, 0);
+  const allTimeTotal = entries.reduce((sum, e) => sum + e.amount, 0);
   const sortedEntries = sortExpenseEntries(entries, sortBy);
 
   const deleteEntry = async (id: number) => {
@@ -1732,6 +1750,7 @@ function ExpenseLogPage() {
             <div className="flex items-center gap-2">
               <div className={`px-3 py-1.5 rounded-lg text-xs ${c("bg-slate-800/60 border border-white/[0.06]","bg-white border border-slate-200")}`}><span className={c("text-slate-500","text-slate-400")}>This Month </span><span className={`font-semibold ${c("text-white","text-slate-900")}`}>₹{monthTotal.toLocaleString("en-IN")}</span></div>
               <div className={`px-3 py-1.5 rounded-lg text-xs ${c("bg-slate-800/60 border border-white/[0.06]","bg-white border border-slate-200")}`}><span className={c("text-slate-500","text-slate-400")}>This Week </span><span className={`font-semibold ${c("text-white","text-slate-900")}`}>₹{weekTotal.toLocaleString("en-IN")}</span></div>
+              <div className={`px-3 py-1.5 rounded-lg text-xs ${c("bg-slate-800/60 border border-white/[0.06]","bg-white border border-slate-200")}`}><span className={c("text-slate-500","text-slate-400")}>All Time </span><span className={`font-semibold ${c("text-white","text-slate-900")}`}>₹{allTimeTotal.toLocaleString("en-IN")}</span></div>
             </div>
             {isSubmitter && <Btn size="sm" icon={Plus} onClick={()=>openModal("add-ops-expense")}>Log Expense</Btn>}
             {isSuperAdmin && <Btn variant="secondary" size="sm" icon={Download} onClick={()=>window.location.href="/api/reports/export?type=ops-expenses"}>Export CSV</Btn>}
@@ -2125,7 +2144,7 @@ function KPIPage() {
   return (
     <div>
       <PageHeader title="KPI Dashboard" subtitle="Key performance indicators across all departments" actions={<Btn size="sm" icon={Plus} onClick={()=>setAdding(true)}>Add KPI</Btn>}/>
-      {kpis.length===0 && <p className={`text-sm ${c("text-slate-500","text-slate-400")}`}>No KPIs have been defined yet.</p>}
+      {kpis.length===0 && <EmptyState icon={Target} title="No KPIs have been defined yet." className="mb-6"/>}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         {kpis.map(kpi=>(
           <Card key={kpi.id} className="p-5 cursor-pointer transition-all hover:-translate-y-0.5" onClick={()=>setEditing(kpi)}>
@@ -2254,7 +2273,7 @@ function OKRPage() {
     <div>
       <PageHeader title="OKR Tracker" subtitle={`Objectives and Key Results — ${data.quarter} ${new Date().getFullYear()}`}
         actions={<><div className="flex gap-1">{["Q1","Q2","Q3","Q4"].map(q=><button key={q} onClick={()=>setQuarter(q)} className={`px-3 py-1.5 text-xs rounded-lg ${quarter===q?"bg-indigo-600 text-white":c("bg-slate-800/60 text-slate-500","bg-white border border-slate-200 text-slate-500")}`}>{q}</button>)}</div><Btn size="sm" icon={Plus} onClick={()=>openModal("add-objective")}>Add Objective</Btn></>}/>
-      {objectives.length===0 && <p className={`text-sm ${c("text-slate-500","text-slate-400")}`}>No objectives for this quarter yet.</p>}
+      {objectives.length===0 && <EmptyState icon={Zap} title="No objectives for this quarter yet."/>}
       <div className="space-y-4">
         {objectives.map((obj:any)=>(
           <Card key={obj.id} className="overflow-hidden">
@@ -2340,7 +2359,7 @@ function KnowledgePage() {
       <PageHeader title="Knowledge Base" subtitle="Documentation, SOPs, and company resources" actions={<Btn size="sm" icon={Plus} onClick={()=>openModal("add-article")}>New Article</Btn>}/>
       <div className="relative mb-4"><Search size={14} className={`absolute left-3 top-1/2 -translate-y-1/2 ${c("text-slate-500","text-slate-400")}`}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search articles..." className={`w-full border rounded-lg pl-9 pr-4 py-2 text-sm focus:outline-none ${c("bg-slate-800/60 border-white/[0.08] text-slate-300 placeholder-slate-600 focus:border-indigo-500/50","bg-white border-slate-200 text-slate-700 placeholder-slate-400 focus:border-indigo-400")}`}/></div>
       <div className="flex gap-2 mb-5 flex-wrap">{categories.map(ca=><button key={ca} onClick={()=>setCat(ca)} className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${cat===ca?"bg-indigo-600 text-white":c("bg-slate-800/60 border border-white/[0.08] text-slate-400 hover:text-slate-200","bg-white border border-slate-200 text-slate-500 hover:text-slate-700")}`}>{ca}</button>)}</div>
-      {articles.length===0 && <p className={`text-sm ${c("text-slate-500","text-slate-400")}`}>No articles found.</p>}
+      {articles.length===0 && <EmptyState icon={BookOpen} title="No articles found."/>}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {articles.map(a=>{
           const Icon = KNOWLEDGE_CATEGORY_ICONS[a.category] ?? FileText;
@@ -2391,7 +2410,7 @@ function MeetingsPage() {
   return (
     <div>
       <PageHeader title="Meetings" subtitle="Upcoming meetings and sessions" actions={<Btn size="sm" icon={Plus} onClick={()=>openModal("schedule-meeting")}>Schedule Meeting</Btn>}/>
-      {meetings.length===0 && <p className={`text-sm ${c("text-slate-500","text-slate-400")}`}>No meetings scheduled yet.</p>}
+      {meetings.length===0 && <EmptyState icon={Video} title="No meetings scheduled yet."/>}
       <div className="space-y-3">{meetings.map((m,mi)=>{
         const canManage = authUser?.id === m.createdById || authUser?.role === "super-admin";
         return (
@@ -2439,7 +2458,7 @@ function NotificationsPage() {
   return (
     <div>
       <PageHeader title="Notifications" subtitle={`${notifs.filter(n=>!n.read).length} unread`} actions={<Btn variant="ghost" size="sm" onClick={markAllRead}>Mark all read</Btn>}/>
-      {notifs.length===0 && <p className={`text-sm ${c("text-slate-500","text-slate-400")}`}>You're all caught up.</p>}
+      {notifs.length===0 && <EmptyState icon={CheckCircle2} title="You're all caught up."/>}
       <div className="space-y-2 max-w-2xl">{notifs.map((n)=>{
         const Icon = NOTIF_ICONS[n.icon] ?? CheckSquare;
         return (
@@ -3452,15 +3471,20 @@ function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-6" style={{ background: "#060D1F", fontFamily: "'Inter',-apple-system,sans-serif" }}>
-      <div className="w-full max-w-md">
-        <div className="flex items-center gap-2 mb-8 justify-center">
-          <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center"><Layers size={16} className="text-white"/></div>
-          <span className="text-base font-bold text-white">RIAURA Work OS</span>
+    <div className="min-h-screen flex items-center justify-center p-6 relative overflow-hidden" style={{ background: "#060D1F", fontFamily: "'Inter',-apple-system,sans-serif" }}>
+      <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(circle at 50% 0%, rgba(79,70,229,0.16), transparent 60%)" }} />
+      <div className="absolute -top-40 -left-40 w-96 h-96 rounded-full bg-indigo-600/10 blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-40 -right-40 w-96 h-96 rounded-full bg-violet-600/10 blur-3xl pointer-events-none" />
+
+      <div className="w-full max-w-md relative">
+        <div className="flex items-center gap-2.5 mb-8 justify-center">
+          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center shadow-lg shadow-indigo-950/50 ring-1 ring-white/10"><Layers size={17} className="text-white"/></div>
+          <span className="text-lg font-bold text-white tracking-tight">RIAURA Work OS</span>
         </div>
 
-        <h2 className="text-2xl font-bold text-white mb-1 text-center">Sign in to your workspace</h2>
-          <p className="text-slate-400 text-sm mb-7">Enter your credentials below</p>
+        <div className="rounded-2xl border border-white/[0.07] bg-slate-900/60 backdrop-blur-xl shadow-2xl shadow-black/40 p-8">
+          <h2 className="text-2xl font-bold text-white mb-1 text-center tracking-tight">Sign in to your workspace</h2>
+          <p className="text-slate-400 text-sm mb-7 text-center">Enter your credentials below</p>
 
           {/* Form */}
           <div className="space-y-4">
@@ -3470,7 +3494,7 @@ function LoginPage() {
                 <Mail size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
                 <input value={email} onChange={e => { setEmail(e.target.value); setError(""); }}
                   onKeyDown={e => e.key === "Enter" && handleLogin()}
-                  className="w-full bg-slate-800/60 border border-white/[0.08] rounded-xl pl-10 pr-4 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 transition-colors"
+                  className="w-full bg-slate-800/60 border border-white/[0.08] rounded-xl pl-10 pr-4 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 focus:ring-2 focus:ring-indigo-500/15 transition-all"
                   placeholder="you@riaura.com" autoComplete="email" />
               </div>
             </div>
@@ -3482,9 +3506,9 @@ function LoginPage() {
                 <input type={showPass ? "text" : "password"} value={password}
                   onChange={e => { setPassword(e.target.value); setError(""); }}
                   onKeyDown={e => e.key === "Enter" && handleLogin()}
-                  className="w-full bg-slate-800/60 border border-white/[0.08] rounded-xl pl-10 pr-10 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 transition-colors"
+                  className="w-full bg-slate-800/60 border border-white/[0.08] rounded-xl pl-10 pr-10 py-3 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/60 focus:ring-2 focus:ring-indigo-500/15 transition-all"
                   placeholder="••••••••" autoComplete="current-password" />
-                <button onClick={() => setShowPass(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+                <button onClick={() => setShowPass(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors">
                   <Eye size={15} />
                 </button>
               </div>
@@ -3498,7 +3522,7 @@ function LoginPage() {
                 </div>
                 <span className="text-xs text-slate-400">Remember me</span>
               </label>
-              <button className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">Forgot password?</button>
+              <button className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-medium">Forgot password?</button>
             </div>
 
             {error && (
@@ -3509,7 +3533,7 @@ function LoginPage() {
             )}
 
             <button onClick={handleLogin} disabled={loading}
-              className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:opacity-60 flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/20">
+              className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-semibold transition-all disabled:opacity-60 flex items-center justify-center gap-2 shadow-lg shadow-indigo-600/25">
               {loading ? (
                 <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Signing in...</>
               ) : (
@@ -3517,8 +3541,9 @@ function LoginPage() {
               )}
             </button>
           </div>
+        </div>
 
-          <p className="text-center text-[11px] text-slate-700 mt-5">
+          <p className="text-center text-[11px] text-slate-600 mt-6">
             RIAURA Work OS · Enterprise Edition · v3.0.0
           </p>
       </div>
