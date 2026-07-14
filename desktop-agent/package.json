@@ -1,0 +1,39 @@
+{
+  "name": "riaura-attendance-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Background tray agent that auto punches employees in/out of RIAURA attendance based on office WiFi presence.",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "build": "tsc && node scripts/copy-assets.js",
+    "start": "npm run build && electron .",
+    "dist:win": "npm run build && electron-builder --win",
+    "dist:mac": "npm run build && electron-builder --mac"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "electron-log": "^5.2.0"
+  },
+  "build": {
+    "appId": "com.riaura.attendance-agent",
+    "productName": "RIAURA Attendance Agent",
+    "files": [
+      "dist/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.productivity"
+    }
+  }
+}

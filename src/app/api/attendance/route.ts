@@ -150,27 +150,39 @@ export async function POST(req: NextRequest) {
   if (action !== "in" && action !== "out") {
     return NextResponse.json({ error: "action must be 'in' or 'out'." }, { status: 400 });
   }
+  const source = body?.source === "auto" ? "auto" : "manual";
 
   const now = new Date();
   const today = startOfDay(now);
 
   if (action === "in") {
     const existing = await prisma.attendance.findUnique({ where: { employeeId_date: { employeeId: user.id, date: today } } });
-    if (existing?.punchIn) return NextResponse.json({ error: "Already punched in today." }, { status: 409 });
+    if (existing?.punchIn) {
+      // The desktop agent re-calls this on every WiFi reconnect/resync, so a
+      // redundant auto punch-in is expected traffic, not an error condition.
+      if (source === "auto") return NextResponse.json({ ok: true, noop: true });
+      return NextResponse.json({ error: "Already punched in today." }, { status: 409 });
+    }
     const status = now.getHours() + now.getMinutes() / 60 > LATE_CUTOFF_HOUR ? "late" : "present";
     await prisma.attendance.upsert({
       where: { employeeId_date: { employeeId: user.id, date: today } },
-      create: { employeeId: user.id, date: today, punchIn: now, status },
-      update: { punchIn: now, status, punchOut: null, hoursWorked: null },
+      create: { employeeId: user.id, date: today, punchIn: now, status, punchInSource: source },
+      update: { punchIn: now, status, punchOut: null, hoursWorked: null, punchInSource: source, punchOutSource: "manual" },
     });
   } else {
     const existing = await prisma.attendance.findUnique({ where: { employeeId_date: { employeeId: user.id, date: today } } });
-    if (!existing?.punchIn) return NextResponse.json({ error: "You haven't punched in today." }, { status: 409 });
-    if (existing.punchOut) return NextResponse.json({ error: "Already punched out today." }, { status: 409 });
+    if (!existing?.punchIn || existing.punchOut) {
+      // Same reasoning as above: an agent asking to punch out when there's
+      // nothing to close (never punched in yet, or already punched out) is a
+      // legitimate no-op, not a user-facing error.
+      if (source === "auto") return NextResponse.json({ ok: true, noop: true });
+      if (!existing?.punchIn) return NextResponse.json({ error: "You haven't punched in today." }, { status: 409 });
+      return NextResponse.json({ error: "Already punched out today." }, { status: 409 });
+    }
     const hoursWorked = (now.getTime() - new Date(existing.punchIn).getTime()) / 3600000;
     await prisma.attendance.update({
       where: { employeeId_date: { employeeId: user.id, date: today } },
-      data: { punchOut: now, hoursWorked: Math.round(hoursWorked * 100) / 100 },
+      data: { punchOut: now, hoursWorked: Math.round(hoursWorked * 100) / 100, punchOutSource: source },
     });
   }
 

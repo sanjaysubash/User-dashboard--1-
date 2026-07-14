@@ -11,7 +11,7 @@ import {
   CheckCircle2, XCircle, TrendingUp, TrendingDown, Send, Paperclip,
   Smile, Menu, X, Eye, Edit2, Trash2, Download, RefreshCw,
   GripVertical, Play, Phone, Mail, MapPin, Globe, Activity, SlidersHorizontal,
-  Mic, Code, Layers, Sun, Moon, ChevronLeft, Tag, Info, Copy, Lock, Upload, PartyPopper, Wallet, Receipt, ArrowUpDown
+  Mic, Code, Layers, Sun, Moon, ChevronLeft, Tag, Info, Copy, Lock, Upload, PartyPopper, Wallet, Receipt, ArrowUpDown, Wifi
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
@@ -2659,14 +2659,18 @@ function SettingsPage() {
   const [sessions, setSessions] = useState<any[]>([]);
   const [apiKeys, setApiKeys] = useState<any[]>([]);
   const [newKey, setNewKey] = useState<{ name: string; rawKey: string } | null>(null);
+  const [officeNetworks, setOfficeNetworks] = useState<any[]>([]);
+  const [newNetwork, setNewNetwork] = useState({ label: "", bssid: "", ssid: "" });
   const isAdmin = authUser?.role === "super-admin" || authUser?.role === "hr-admin";
-  const tabs=[{id:"organization",label:"Organization",icon:Building2},{id:"notifications",label:"Notifications",icon:Bell},{id:"security",label:"Security",icon:Lock},{id:"api",label:"API Keys",icon:Key}];
+  const tabs=[{id:"organization",label:"Organization",icon:Building2},{id:"notifications",label:"Notifications",icon:Bell},{id:"security",label:"Security",icon:Lock},{id:"api",label:"API Keys",icon:Key},{id:"network",label:"Office Network",icon:Wifi}];
   const inp=`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none ${c("bg-slate-800/60 border-white/[0.08] text-slate-300 focus:border-indigo-500/50","bg-white border-slate-200 text-slate-700 focus:border-indigo-400")}`;
 
   const loadSettings = () => fetch("/api/settings").then(r => r.json()).then(d => { setSettings(d.settings); setForm(d.settings); });
   useEffect(() => { loadSettings(); }, []);
   useEffect(() => { if (tab==="security") fetch("/api/sessions").then(r => r.json()).then(d => setSessions(d.sessions ?? [])); }, [tab]);
   useEffect(() => { if (tab==="api" && isAdmin) fetch("/api/api-keys").then(r => r.json()).then(d => setApiKeys(d.keys ?? [])); }, [tab]);
+  const loadNetworks = () => fetch("/api/office-network").then(r => r.json()).then(d => setOfficeNetworks(d.networks ?? []));
+  useEffect(() => { if (tab==="network") loadNetworks(); }, [tab]);
 
   const save = async (fields: string[]) => {
     const patch = Object.fromEntries(fields.map(f => [f, form[f]]));
@@ -2690,6 +2694,19 @@ function SettingsPage() {
   const revokeKey = async (id: number) => {
     await fetch(`/api/api-keys/${id}`, { method: "DELETE" });
     fetch("/api/api-keys").then(r => r.json()).then(d => setApiKeys(d.keys ?? []));
+  };
+  const addNetwork = async () => {
+    if (!newNetwork.label.trim() || !newNetwork.bssid.trim()) return;
+    const res = await fetch("/api/office-network", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(newNetwork) });
+    if (res.ok) { setNewNetwork({ label: "", bssid: "", ssid: "" }); loadNetworks(); }
+  };
+  const toggleNetworkActive = async (id: number, active: boolean) => {
+    await fetch(`/api/office-network/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: !active }) });
+    loadNetworks();
+  };
+  const deleteNetwork = async (id: number) => {
+    await fetch(`/api/office-network/${id}`, { method: "DELETE" });
+    loadNetworks();
   };
 
   if (!settings || !form) return null;
@@ -2736,6 +2753,26 @@ function SettingsPage() {
           <div key={k.id} className={`p-4 rounded-xl border ${c("bg-slate-700/20 border-white/[0.06]","bg-slate-50 border-slate-200")}`}>
             <div className="flex items-start justify-between mb-2"><div><p className={`text-sm font-medium ${c("text-slate-200","text-slate-800")}`}>{k.name}</p><code className="text-xs text-indigo-500 font-mono mt-0.5 block">{k.key}</code></div><button onClick={()=>revokeKey(k.id)} className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-500 hover:text-red-400 hover:bg-slate-700","text-slate-400 hover:text-red-500 hover:bg-slate-200")}`}><Trash2 size={13}/></button></div>
             <div className={`flex items-center gap-4 text-[11px] ${c("text-slate-600","text-slate-400")} flex-wrap`}><span>Created {k.created}</span><span>Last used {k.lastUsed}</span><Badge variant="default">{k.permissions}</Badge></div>
+          </div>
+        ))}</div>
+      </Card>}
+
+      {tab==="network"&&<Card className="p-5 max-w-2xl">
+        <div className="mb-4"><h3 className={`text-sm font-semibold ${c("text-white","text-slate-900")}`}>Office WiFi Networks</h3><p className={`text-xs mt-0.5 ${c("text-slate-500","text-slate-400")}`}>Registered access-point BSSIDs the desktop agent uses to detect office WiFi. A single router usually has separate BSSIDs for 2.4GHz and 5GHz — register both.</p></div>
+        {isAdmin && <div className={`p-3 mb-4 rounded-xl border flex flex-wrap gap-2 items-end ${c("bg-slate-700/20 border-white/[0.06]","bg-slate-50 border-slate-200")}`}>
+          <div className="flex-1 min-w-[120px]"><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>Label</label><input value={newNetwork.label} onChange={e=>setNewNetwork(p=>({...p,label:e.target.value}))} placeholder="HQ - 5GHz" className={inp}/></div>
+          <div className="flex-1 min-w-[160px]"><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>BSSID</label><input value={newNetwork.bssid} onChange={e=>setNewNetwork(p=>({...p,bssid:e.target.value}))} placeholder="aa:bb:cc:dd:ee:ff" className={inp}/></div>
+          <div className="flex-1 min-w-[120px]"><label className={`text-[11px] block mb-1 ${c("text-slate-500","text-slate-400")}`}>SSID (optional)</label><input value={newNetwork.ssid} onChange={e=>setNewNetwork(p=>({...p,ssid:e.target.value}))} placeholder="Office-WiFi" className={inp}/></div>
+          <Btn size="sm" icon={Plus} onClick={addNetwork}>Add</Btn>
+        </div>}
+        {!isAdmin && <p className={`text-sm mb-4 ${c("text-slate-500","text-slate-400")}`}>Only HR Admin or Super Admin can manage office networks.</p>}
+        <div className="space-y-3">{officeNetworks.length===0 && <p className={`text-xs ${c("text-slate-500","text-slate-400")}`}>No office networks registered yet.</p>}{officeNetworks.map(n=>(
+          <div key={n.id} className={`p-4 rounded-xl border ${c("bg-slate-700/20 border-white/[0.06]","bg-slate-50 border-slate-200")}`}>
+            <div className="flex items-start justify-between mb-2">
+              <div><p className={`text-sm font-medium ${c("text-slate-200","text-slate-800")}`}>{n.label}</p><code className="text-xs text-indigo-500 font-mono mt-0.5 block">{n.bssid}</code></div>
+              {isAdmin && <div className="flex items-center gap-1"><button onClick={()=>toggleNetworkActive(n.id,n.active)} className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-500 hover:text-slate-200 hover:bg-slate-700","text-slate-400 hover:text-slate-700 hover:bg-slate-200")}`}><RefreshCw size={13}/></button><button onClick={()=>deleteNetwork(n.id)} className={`w-7 h-7 rounded flex items-center justify-center ${c("text-slate-500 hover:text-red-400 hover:bg-slate-700","text-slate-400 hover:text-red-500 hover:bg-slate-200")}`}><Trash2 size={13}/></button></div>}
+            </div>
+            <div className={`flex items-center gap-4 text-[11px] ${c("text-slate-600","text-slate-400")} flex-wrap`}>{n.ssid && <span>SSID: {n.ssid}</span>}<Badge variant={n.active?"success":"default"}>{n.active?"Active":"Inactive"}</Badge></div>
           </div>
         ))}</div>
       </Card>}
