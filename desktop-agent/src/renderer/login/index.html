@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>RIAURA Attendance Agent</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", sans-serif; background:#0f172a; color:#e2e8f0; margin:0; padding:24px; }
+  h1 { font-size:15px; margin:0 0 4px; }
+  p.sub { font-size:12px; color:#64748b; margin:0 0 18px; }
+  label { font-size:12px; color:#94a3b8; display:block; margin-bottom:4px; }
+  input { width:100%; box-sizing:border-box; padding:8px 10px; margin-bottom:12px; border-radius:6px; border:1px solid #334155; background:#1e293b; color:#e2e8f0; font-size:13px; }
+  input:focus { outline:none; border-color:#6366f1; }
+  button { width:100%; padding:9px; border-radius:6px; border:none; background:#4f46e5; color:#fff; font-size:13px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:0.6; cursor:default; }
+  #error { color:#f87171; font-size:12px; margin-top:10px; min-height:14px; }
+</style>
+</head>
+<body>
+  <h1>RIAURA Attendance Agent</h1>
+  <p class="sub">Log in to enable automatic punch in/out on office WiFi.</p>
+  <label for="email">Email</label>
+  <input id="email" type="email" autocomplete="username" />
+  <label for="password">Password</label>
+  <input id="password" type="password" autocomplete="current-password" />
+  <button id="submit">Log in</button>
+  <div id="error"></div>
+  <script src="./login.js"></script>
+</body>
+</html>

@@ -28,12 +28,13 @@ export async function POST(req: NextRequest) {
 
   const { token, expiresAt } = await createSession(employee.id, userAgent, ip);
   const permissions = await getPermissionsForRole(employee.role);
-  // The mobile app can't use httpOnly cookies; it gets the raw token in the
-  // body and sends it back as an Authorization: Bearer header (see lib/auth).
-  const isMobileClient = req.headers.get("x-client") === "mobile";
+  // The mobile app and desktop agent can't use httpOnly cookies; they get the
+  // raw token in the body and send it back as an Authorization: Bearer
+  // header (see lib/auth).
+  const wantsToken = ["mobile", "desktop"].includes(req.headers.get("x-client") ?? "");
   const res = NextResponse.json({
     user: toAuthUser(employee, permissions),
-    ...(isMobileClient ? { token } : {}),
+    ...(wantsToken ? { token } : {}),
   });
   setSessionCookie(res, token, expiresAt);
   await logAudit(employee, "Logged in", "Auth", "info", ip);
