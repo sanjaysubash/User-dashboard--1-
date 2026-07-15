@@ -1,13 +1,3 @@
-export {};
-
-declare global {
-  interface Window {
-    agent: {
-      login: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
-    };
-  }
-}
-
 const emailInput = document.getElementById("email") as HTMLInputElement;
 const passwordInput = document.getElementById("password") as HTMLInputElement;
 const submitButton = document.getElementById("submit") as HTMLButtonElement;
