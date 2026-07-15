@@ -70,10 +70,14 @@ export class PunchLoop {
     // idempotent no-ops when there's nothing to change.
     if (!stateChanged && !isStartup && !dueForResync) return;
 
-    this.isOnOffice = nowOnOffice;
-    this.lastResync = Date.now();
     try {
       await this.api.punch(nowOnOffice ? "in" : "out");
+      // Only commit the new state once the call actually succeeds — otherwise
+      // a failed punch (e.g. no connectivity at the moment of leaving office
+      // WiFi) would be forgotten and never retried, since the next tick would
+      // see no state change against a value we'd already updated optimistically.
+      this.isOnOffice = nowOnOffice;
+      this.lastResync = Date.now();
       this.onStateChange(nowOnOffice ? "on-office" : "off-office");
     } catch (err: any) {
       log.error("Punch call failed", err);
