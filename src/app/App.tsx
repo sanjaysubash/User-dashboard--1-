@@ -5330,7 +5330,7 @@ function MonthlyExpensesPage() {
             <Bar key="exp-marketing" dataKey="marketing" name="Marketing" stackId="a" fill="#8B5CF6"/>
             <Bar key="exp-infra" dataKey="infra" name="Infrastructure" stackId="a" fill="#06B6D4"/>
             <Bar key="exp-travel" dataKey="travel" name="Travel" stackId="a" fill="#F43F5E" radius={[3,3,0,0]}/>
-          </BarChart
+          </BarChart>
         </ResponsiveContainer>
       </Card>
 
