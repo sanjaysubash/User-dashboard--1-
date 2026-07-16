@@ -13,6 +13,10 @@
   button { width:100%; padding:9px; border-radius:6px; border:none; background:#4f46e5; color:#fff; font-size:13px; font-weight:600; cursor:pointer; }
   button:disabled { opacity:0.6; cursor:default; }
   #error { color:#f87171; font-size:12px; margin-top:10px; min-height:14px; }
+  #status { font-size:12px; margin-top:10px; min-height:14px; }
+  #status.neutral { color:#94a3b8; }
+  #status.success { color:#34d399; }
+  #status.warn { color:#fbbf24; }
 </style>
 </head>
 <body>
@@ -24,6 +28,7 @@
   <input id="password" type="password" autocomplete="current-password" />
   <button id="submit">Log in</button>
   <div id="error"></div>
+  <div id="status"></div>
   <script src="./login.js"></script>
 </body>
 </html>

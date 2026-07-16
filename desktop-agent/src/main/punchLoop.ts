@@ -14,15 +14,25 @@ export class PunchLoop {
 
   constructor(
     private api: ApiClient,
-    private onStateChange: (state: PunchLoopState, detail?: string) => void
+    // isTransition is true for startup / an actual on-office<->off-office
+    // flip, false for the periodic no-op resync heartbeat — callers use it
+    // to decide whether a state change is worth surfacing (e.g. a
+    // notification) rather than reacting to every heartbeat.
+    private onStateChange: (state: PunchLoopState, detail?: string, isTransition?: boolean) => void
   ) {}
 
-  async start(): Promise<void> {
+  /** Current on/off-office state without waiting for another WiFi check. */
+  getState(): PunchLoopState {
+    return this.isOnOffice ? "on-office" : "off-office";
+  }
+
+  async start(): Promise<PunchLoopState> {
     await this.refreshNetworks();
-    await this.tick(true);
+    const state = await this.tick(true);
     this.timer = setInterval(() => {
       this.tick(false).catch((err) => log.error("Punch loop tick failed", err));
     }, POLL_INTERVAL_MS);
+    return state;
   }
 
   stop(): void {
@@ -54,7 +64,7 @@ export class PunchLoop {
     }
   }
 
-  private async tick(isStartup: boolean): Promise<void> {
+  private async tick(isStartup: boolean): Promise<PunchLoopState> {
     if (Date.now() - this.lastNetworkRefresh > NETWORK_LIST_REFRESH_MS) {
       await this.refreshNetworks();
     }
@@ -63,12 +73,13 @@ export class PunchLoop {
     const nowOnOffice = !!bssid && this.officeBssids.has(bssid);
     const stateChanged = nowOnOffice !== this.isOnOffice;
     const dueForResync = Date.now() - this.lastResync > RESYNC_INTERVAL_MS;
+    const isTransition = stateChanged || isStartup;
 
     // Only call the punch API on a transition, at startup, or on a periodic
     // resync heartbeat — never on every tick. This is safe to call
     // redundantly because the backend treats source:"auto" punches as
     // idempotent no-ops when there's nothing to change.
-    if (!stateChanged && !isStartup && !dueForResync) return;
+    if (!stateChanged && !isStartup && !dueForResync) return this.getState();
 
     try {
       await this.api.punch(nowOnOffice ? "in" : "out");
@@ -78,10 +89,13 @@ export class PunchLoop {
       // see no state change against a value we'd already updated optimistically.
       this.isOnOffice = nowOnOffice;
       this.lastResync = Date.now();
-      this.onStateChange(nowOnOffice ? "on-office" : "off-office");
+      const state = nowOnOffice ? "on-office" : "off-office";
+      this.onStateChange(state, undefined, isTransition);
+      return state;
     } catch (err: any) {
       log.error("Punch call failed", err);
-      this.onStateChange("error", err?.message);
+      this.onStateChange("error", err?.message, isTransition);
+      return "error";
     }
   }
 }

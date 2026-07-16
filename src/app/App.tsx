@@ -15,7 +15,8 @@ import {
 } from "lucide-react";
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, LineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  Legend, 
 } from "recharts";
 import { DndProvider, useDrag, useDrop } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
@@ -5329,7 +5330,7 @@ function MonthlyExpensesPage() {
             <Bar key="exp-marketing" dataKey="marketing" name="Marketing" stackId="a" fill="#8B5CF6"/>
             <Bar key="exp-infra" dataKey="infra" name="Infrastructure" stackId="a" fill="#06B6D4"/>
             <Bar key="exp-travel" dataKey="travel" name="Travel" stackId="a" fill="#F43F5E" radius={[3,3,0,0]}/>
-          </BarChart>
+          </BarChart
         </ResponsiveContainer>
       </Card>
 
