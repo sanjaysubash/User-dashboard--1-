@@ -7,3 +7,9 @@ export const API_BASE_URL = process.env.RIAURA_API_URL || "https://riauramanagem
 export const POLL_INTERVAL_MS = 20_000;
 export const NETWORK_LIST_REFRESH_MS = 60 * 60 * 1000; // 1 hour
 export const RESYNC_INTERVAL_MS = 60 * 60 * 1000; // 1 hour, self-heals missed transitions
+
+// Loopback-only HTTP port the dashboard's Attendance page polls to show a
+// "connected to office WiFi" status without the browser needing any WiFi
+// access itself (browsers can't read BSSID/SSID). Picked to avoid common
+// dev-server collisions (3000, 8080, etc).
+export const STATUS_SERVER_PORT = 47624;

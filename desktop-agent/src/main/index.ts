@@ -5,6 +5,7 @@ import { ApiClient } from "./api";
 import { getToken } from "./tokenStore";
 import { PunchLoop, PunchLoopState } from "./punchLoop";
 import { AgentTray } from "./tray";
+import { StatusServer } from "./statusServer";
 import { setAutoLaunch, getAutoLaunch } from "./autoLaunch";
 import log from "./logger";
 
@@ -12,6 +13,7 @@ const api = new ApiClient(API_BASE_URL);
 let tray: AgentTray | null = null;
 let punchLoop: PunchLoop | null = null;
 let loginWindow: BrowserWindow | null = null;
+const statusServer = new StatusServer();
 
 function openLoginWindow(): void {
   if (loginWindow) {
@@ -51,6 +53,7 @@ async function startPunchLoop(): Promise<PunchLoopState> {
   if (punchLoop) return punchLoop.getState();
   punchLoop = new PunchLoop(api, (state, detail, isTransition) => {
     tray?.setState(state, detail);
+    statusServer.setState(state, detail);
     if (isTransition) notifyState(state, detail);
   });
   return punchLoop.start();
@@ -68,11 +71,14 @@ if (process.platform === "win32") {
 }
 
 app.whenReady().then(() => {
+  statusServer.start();
+
   tray = new AgentTray({
     onLogout: () => {
       api.logout();
       stopPunchLoop();
       tray?.setState("logged-out");
+      statusServer.setState("logged-out");
       openLoginWindow();
     },
     onQuit: () => app.quit(),
